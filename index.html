@@ -9,6 +9,7 @@
     rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // ===================== SUPABASE CONFIG =====================
@@ -1229,6 +1230,7 @@
   <div class="tabs">
     <div class="tab active" id="tab-daily" onclick="showTab('daily')">บันทึกเวลาประจำวัน</div>
     <div class="tab" id="tab-summary" onclick="showTab('summary')">สรุปสถิติรายบุคคล</div>
+    <div class="tab" id="tab-dashboard" onclick="showTab('dashboard')">📊 Dashboard</div>
     <div class="tab" id="tab-emp" onclick="showTab('emp')">จัดการข้อมูลพนักงาน</div>
   </div>
 
@@ -1360,6 +1362,7 @@
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#10b981">มาทำงาน
                 </th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#f59e0b">มาสาย</th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#d97706">นาทีสาย</th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#ef4444">ลาป่วย
                 </th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#3b82f6">พักร้อน
@@ -1373,6 +1376,44 @@
             </thead>
             <tbody id="sum-tbody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div id="view-dashboard" style="display:none;flex:1;overflow:auto;min-height:0">
+    <div class="panel" id="dashboard-panel">
+      <!-- KPI Row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:20px" id="dash-kpi"></div>
+      <!-- Charts Row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px" id="dash-charts-row">
+        <div class="card" style="padding:20px">
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">การเข้างานรายวัน (7 วันล่าสุด)</div>
+          <div style="position:relative;height:220px;width:100%">
+            <canvas id="chart-daily"></canvas>
+          </div>
+        </div>
+        <div class="card" style="padding:20px">
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">สัดส่วนสถานะเดือนนี้</div>
+          <div style="position:relative;height:220px;width:100%">
+            <canvas id="chart-status"></canvas>
+          </div>
+        </div>
+      </div>
+      <!-- Bottom Row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px" id="dash-bottom">
+        <div class="card" style="padding:20px">
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">🕐 Top 5 มาสายสะสม (นาที)</div>
+          <div id="dash-top-late"></div>
+        </div>
+        <div class="card" style="padding:20px">
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">🤒 Top 5 ลาป่วยสะสม (วัน)</div>
+          <div id="dash-top-sick"></div>
+        </div>
+        <div class="card" style="padding:20px">
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">📊 สรุปตามแผนก (เดือนนี้)</div>
+          <div id="dash-by-dept" style="max-height:250px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -1551,12 +1592,17 @@
       return dates;
     }
     function getStats(empId, dates) {
-      var work = 0, late = 0, sick = 0, vacation = 0, personal = 0, absent = 0, noscan = 0;
+      var work = 0, late = 0, sick = 0, vacation = 0, personal = 0, absent = 0, noscan = 0, lateMins = 0;
       dates.forEach(function (date) {
-        var c = ge(empId, date).code;
+        var ent = ge(empId, date);
+        var c = ent.code;
         if (!c || 'w h H b พ พร'.indexOf(c) >= 0) return;
         if (c === '1') work++;
-        else if (c === 'ส') { work++; late++; }
+        else if (c === 'ส') {
+          work++; late++;
+          var m = (ent.note || '').match(/สาย (\d+) นาที/);
+          if (m) lateMins += parseInt(m[1]);
+        }
         else if (c === 'f') work++;
         else if (c === 's') { work++; noscan++; }
         else if (c === 'ป') sick++;
@@ -1564,7 +1610,7 @@
         else if (c === 'ก' || c === 'อ') personal++;
         else if (c === 'ข') absent++;
       });
-      return { work: work, late: late, sick: sick, vacation: vacation, personal: personal, absent: absent, noscan: noscan };
+      return { work: work, late: late, sick: sick, vacation: vacation, personal: personal, absent: absent, noscan: noscan, lateMins: lateMins };
     }
     function getShiftTime(note) {
       if (!note) return '';
@@ -1754,11 +1800,12 @@
 
     // ===================== TABS =====================
     function showTab(t) {
-      ['daily', 'summary', 'emp'].forEach(function (x) {
+      ['daily', 'summary', 'dashboard', 'emp'].forEach(function (x) {
         document.getElementById('view-' + x).style.display = t === x ? (x === 'daily' ? 'flex' : 'block') : 'none';
-        document.getElementById('tab-' + x).className = 'tab' + (t === x ? ' active' : '');
+        var el = document.getElementById('tab-' + x); if (el) el.className = 'tab' + (t === x ? ' active' : '');
       });
       if (t === 'summary') renderSummary();
+      if (t === 'dashboard') renderDashboard();
       if (t === 'emp') { renderEmp(); renderMv(); }
       fillFilters();
     }
@@ -1806,11 +1853,14 @@
         var sc = s.sick >= 5 ? 'color:#ef4444;font-weight:700' : s.sick >= 3 ? 'color:#f59e0b;font-weight:600' : '';
         var ac = s.absent >= 1 ? 'color:#ef4444;font-weight:700' : '';
         var nc = s.noscan >= 3 ? 'color:#f59e0b;font-weight:600' : '';
+        var lmColor = s.lateMins >= 120 ? 'color:#ef4444;font-weight:700' : s.lateMins >= 30 ? 'color:#d97706;font-weight:600' : 'color:#94a3b8';
+        var lmHrs = s.lateMins >= 60 ? Math.floor(s.lateMins/60)+'ชม '+(s.lateMins%60?s.lateMins%60+'น':'') : (s.lateMins ? s.lateMins+'น' : '—');
         return '<tr style="cursor:pointer" onclick="showHistory(\'' + e.id + '\')">' +
           '<td style="padding:10px 16px;color:#94a3b8;font-size:12px;text-align:center">' + (i + 1) + '</td>' +
           '<td style="padding:10px 16px"><span style="font-weight:600;color:#0f172a;font-size:13px">' + e.nickname + '</span> <span style="font-size:12px;color:#64748b;margin-left:6px">' + e.position + '</span></td>' +
           '<td style="padding:10px 16px;text-align:center;color:#10b981;font-weight:600">' + (s.work || '—') + '</td>' +
           '<td style="padding:10px 16px;text-align:center;' + lc + '">' + (s.late || '—') + '</td>' +
+          '<td style="padding:10px 16px;text-align:center;' + lmColor + ';font-size:12px" title="' + (s.lateMins||0) + ' นาที">' + lmHrs + '</td>' +
           '<td style="padding:10px 16px;text-align:center;' + sc + '">' + (s.sick || '—') + '</td>' +
           '<td style="padding:10px 16px;text-align:center;color:#3b82f6">' + (s.vacation || '—') + '</td>' +
           '<td style="padding:10px 16px;text-align:center;color:#8b5cf6">' + (s.personal || '—') + '</td>' +
@@ -1880,6 +1930,204 @@
       if (r2.length) { XLSX.utils.book_append_sheet(wb, 'Daily', makeWs(r2)); }
       var d = new Date(), lbl = period === 'week' ? 'Week' : period === 'month' ? 'Month' : 'All';
       xlsxDownload(wb, 'HR_' + lbl + '_' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.xlsx');
+    }
+
+    // ===================== DASHBOARD TAB =====================
+    var _chartDaily = null, _chartStatus = null;
+
+    function getLateMinutes(eid, dates) {
+      var total = 0;
+      dates.forEach(function(date) {
+        var ent = ge(eid, date);
+        if (ent.code === 'ส') {
+          var m = (ent.note || '').match(/สาย (\d+) นาที/);
+          if (m) total += parseInt(m[1]);
+        }
+      });
+      return total;
+    }
+
+    function renderDashboard() {
+      var isDark = document.body.classList.contains('dark-mode');
+      var tc = isDark ? '#e2e8f0' : '#334155';
+      var gc = isDark ? '#333' : '#e2e8f0';
+      var dates7 = [];
+      var tmp = new Date(cur);
+      for (var i = 6; i >= 0; i--) {
+        var d2 = new Date(tmp); d2.setDate(tmp.getDate() - i);
+        dates7.push(dk(d2));
+      }
+      var monthDates = getDateRange('month');
+
+      // --- KPI Cards ---
+      var today = dk(cur);
+      var kpiWork=0,kpiSick=0,kpiAbsent=0,kpiLate=0,kpiEmpty=0,kpiWfh=0,kpiVac=0,kpiPersonal=0;
+      emps.forEach(function(e){
+        var c = ge(e.id, today).code;
+        if(c==='1'||c==='b') kpiWork++;
+        else if(c==='ส'){kpiWork++;kpiLate++;}
+        else if(c==='f'){kpiWork++;kpiWfh++;}
+        else if(c==='s') kpiWork++;
+        else if(c==='ป') kpiSick++;
+        else if(c==='ข') kpiAbsent++;
+        else if(c==='ร') kpiVac++;
+        else if(c==='ก'||c==='อ') kpiPersonal++;
+        else if(!c) kpiEmpty++;
+      });
+      var rate = emps.length ? ((kpiWork / emps.length)*100).toFixed(1) : 0;
+      var kpis = [
+        {label:'พนักงานทั้งหมด', val:emps.length, color:'#1d4ed8', bg:'#eff6ff'},
+        {label:'มาวันนี้', val:kpiWork, color:'#047857', bg:'#ecfdf5'},
+        {label:'Attendance Rate', val:rate+'%', color: rate>=95?'#047857':rate>=85?'#d97706':'#dc2626', bg: rate>=95?'#ecfdf5':rate>=85?'#fffbeb':'#fef2f2'},
+        {label:'ลาป่วย', val:kpiSick, color:'#b91c1c', bg:'#fef2f2'},
+        {label:'ขาดงาน', val:kpiAbsent, color:'#b91c1c', bg:'#fef2f2'},
+        {label:'มาสาย', val:kpiLate, color:'#d97706', bg:'#fffbeb'},
+        {label:'WFH', val:kpiWfh, color:'#0369a1', bg:'#e0f2fe'},
+        {label:'ลาพักร้อน', val:kpiVac, color:'#7c3aed', bg:'#f5f3ff'},
+        {label:'ลากิจ', val:kpiPersonal, color:'#374151', bg:'#f9fafb'},
+        {label:'ยังไม่กรอก', val:kpiEmpty, color:'#64748b', bg:'#f1f5f9'}
+      ];
+      var kpiEl = document.getElementById('dash-kpi');
+      kpiEl.innerHTML = kpis.map(function(k){
+        var bgStyle = isDark ? 'background:#1e1e1e;border-color:#333' : 'background:'+k.bg+';border-color:'+k.color+'22';
+        return '<div style="border-radius:12px;padding:14px 16px;border:1px solid;'+bgStyle+';text-align:center">'+
+          '<div style="font-size:24px;font-weight:800;color:'+k.color+'">'+k.val+'</div>'+
+          '<div style="font-size:11px;font-weight:600;color:'+(isDark?'#9ca3af':'#475569')+';margin-top:4px">'+k.label+'</div>'+
+          '</div>';
+      }).join('');
+
+      // --- Chart: Daily 7-day ---
+      var labels7 = dates7.map(function(d){var dd=new Date(d),dn=['อา','จ','อ','พ','พฤ','ศ','ส'];return dn[dd.getDay()]+' '+dd.getDate()+'/'+(dd.getMonth()+1);});
+      var work7=[], sick7=[], late7=[], absent7=[];
+      dates7.forEach(function(d){
+        var w=0,s=0,l=0,a=0;
+        emps.forEach(function(e){
+          var c=ge(e.id,d).code;
+          if(c==='1'||c==='f'||c==='s'||c==='b') w++;
+          else if(c==='ส'){w++;l++;}
+          else if(c==='ป') s++;
+          else if(c==='ข') a++;
+        });
+        work7.push(w); sick7.push(s); late7.push(l); absent7.push(a);
+      });
+      var ctxDaily = document.getElementById('chart-daily').getContext('2d');
+      if(_chartDaily) _chartDaily.destroy();
+      _chartDaily = new Chart(ctxDaily, {
+        type:'bar',
+        data:{
+          labels:labels7,
+          datasets:[
+            {label:'มาทำงาน',data:work7,backgroundColor:'rgba(16,185,129,0.75)',borderRadius:4},
+            {label:'ลาป่วย',data:sick7,backgroundColor:'rgba(239,68,68,0.7)',borderRadius:4},
+            {label:'มาสาย',data:late7,backgroundColor:'rgba(245,158,11,0.7)',borderRadius:4},
+            {label:'ขาดงาน',data:absent7,backgroundColor:'rgba(220,38,38,0.5)',borderRadius:4}
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{labels:{color:tc,font:{size:11},boxWidth:12}},tooltip:{mode:'index'}},
+          scales:{
+            x:{ticks:{color:tc,font:{size:11}},grid:{color:gc}},
+            y:{ticks:{color:tc,font:{size:11}},grid:{color:gc},beginAtZero:true}
+          }
+        }
+      });
+
+      // --- Chart: Status Donut ---
+      var statusCount = {};
+      var STATUS_LABELS = {'1':'มาทำงาน','ส':'มาสาย','f':'WFH','s':'ลืมสแกน','ป':'ลาป่วย','ร':'พักร้อน','ก':'ลากิจ','ข':'ขาดงาน','w':'หยุดสัปดาห์','h':'วันหยุด','พ':'หยุดพิเศษ','b':'วันเกิด'};
+      var STATUS_COLORS = {'1':'#10b981','ส':'#f59e0b','f':'#0ea5e9','s':'#94a3b8','ป':'#ef4444','ร':'#8b5cf6','ก':'#6366f1','ข':'#dc2626','w':'#cbd5e1','h':'#a3e635','พ':'#fb923c','b':'#ec4899'};
+      monthDates.forEach(function(d){
+        emps.forEach(function(e){
+          var c=ge(e.id,d).code; if(!c) return;
+          statusCount[c]=(statusCount[c]||0)+1;
+        });
+      });
+      var sKeys=Object.keys(statusCount).filter(function(k){return statusCount[k]>0;});
+      var ctxStatus = document.getElementById('chart-status').getContext('2d');
+      if(_chartStatus) _chartStatus.destroy();
+      _chartStatus = new Chart(ctxStatus, {
+        type:'doughnut',
+        data:{
+          labels:sKeys.map(function(k){return (STATUS_LABELS[k]||k)+' ('+statusCount[k]+')'}),
+          datasets:[{data:sKeys.map(function(k){return statusCount[k];}),backgroundColor:sKeys.map(function(k){return STATUS_COLORS[k]||'#94a3b8';}),borderWidth:2,borderColor:isDark?'#1e1e1e':'#f4f6f8'}]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{position:'right',labels:{color:tc,font:{size:11},boxWidth:12,padding:8}}}
+        }
+      });
+
+      // --- Top Late (minutes) ---
+      var lateMap = {};
+      emps.forEach(function(e){ var m=getLateMinutes(e.id, monthDates); if(m>0) lateMap[e.id]=m; });
+      var lateTop = Object.keys(lateMap).sort(function(a,b){return lateMap[b]-lateMap[a];}).slice(0,5);
+      var dlEl = document.getElementById('dash-top-late');
+      if(!lateTop.length){ dlEl.innerHTML='<div style="color:#94a3b8;font-size:12px;text-align:center;padding:20px">ไม่มีข้อมูลมาสาย</div>'; }
+      else {
+        var maxL = lateMap[lateTop[0]];
+        dlEl.innerHTML = lateTop.map(function(id,i){
+          var e=emps.find(function(x){return x.id===id;}); if(!e) return '';
+          var mins=lateMap[id], pct=Math.round((mins/maxL)*100);
+          var hrs=Math.floor(mins/60), rm=mins%60;
+          var timeStr = hrs>0?(hrs+'ชม '+(rm>0?rm+'น':'')):(mins+'น');
+          return '<div style="margin-bottom:10px">'+
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'+
+            '<span style="font-size:12px;font-weight:600;color:'+(isDark?'#e2e8f0':'#0f172a')+'">'+(i+1)+'. '+e.nickname+'</span>'+
+            '<span style="font-size:12px;font-weight:700;color:#d97706">'+timeStr+' ('+mins+'น)</span></div>'+
+            '<div style="background:'+(isDark?'#333':'#e2e8f0')+';border-radius:4px;height:6px">'+
+            '<div style="background:linear-gradient(90deg,#f59e0b,#ef4444);height:6px;border-radius:4px;width:'+pct+'%;transition:width .5s"></div></div>'+
+            '<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+e.position+'</div></div>';
+        }).join('');
+      }
+
+      // --- Top Sick ---
+      var sickMap = {};
+      emps.forEach(function(e){ var s=getStats(e.id,monthDates).sick; if(s>0) sickMap[e.id]=s; });
+      var sickTop = Object.keys(sickMap).sort(function(a,b){return sickMap[b]-sickMap[a];}).slice(0,5);
+      var dsEl = document.getElementById('dash-top-sick');
+      if(!sickTop.length){ dsEl.innerHTML='<div style="color:#94a3b8;font-size:12px;text-align:center;padding:20px">ไม่มีข้อมูลลาป่วย</div>'; }
+      else {
+        var maxS = sickMap[sickTop[0]];
+        dsEl.innerHTML = sickTop.map(function(id,i){
+          var e=emps.find(function(x){return x.id===id;}); if(!e) return '';
+          var days=sickMap[id], pct=Math.round((days/maxS)*100);
+          return '<div style="margin-bottom:10px">'+
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'+
+            '<span style="font-size:12px;font-weight:600;color:'+(isDark?'#e2e8f0':'#0f172a')+'">'+(i+1)+'. '+e.nickname+'</span>'+
+            '<span style="font-size:12px;font-weight:700;color:#ef4444">'+days+' วัน</span></div>'+
+            '<div style="background:'+(isDark?'#333':'#e2e8f0')+';border-radius:4px;height:6px">'+
+            '<div style="background:linear-gradient(90deg,#f87171,#dc2626);height:6px;border-radius:4px;width:'+pct+'%;transition:width .5s"></div></div>'+
+            '<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+e.position+'</div></div>';
+        }).join('');
+      }
+
+      // --- By Dept ---
+      var deptMap = {};
+      emps.forEach(function(e){
+        if(!deptMap[e.position]) deptMap[e.position]={work:0,late:0,sick:0,absent:0,total:0,lateMin:0};
+        deptMap[e.position].total++;
+        monthDates.forEach(function(d){
+          var c=ge(e.id,d).code;
+          if(c==='1'||c==='f'||c==='s'||c==='b') deptMap[e.position].work++;
+          else if(c==='ส'){deptMap[e.position].work++;deptMap[e.position].late++; var m=(ge(e.id,d).note||'').match(/สาย (\d+) นาที/); if(m) deptMap[e.position].lateMin+=parseInt(m[1]);}
+          else if(c==='ป') deptMap[e.position].sick++;
+          else if(c==='ข') deptMap[e.position].absent++;
+        });
+      });
+      var depts = Object.keys(deptMap).sort();
+      var ddEl = document.getElementById('dash-by-dept');
+      ddEl.innerHTML = depts.map(function(d){
+        var dm=deptMap[d];
+        return '<div style="padding:8px 0;border-bottom:1px dashed '+(isDark?'#333':'#e2e8f0')+'">'+
+          '<div style="font-size:12px;font-weight:700;color:'+(isDark?'#e2e8f0':'#0f172a')+'">'+d+' <span style="font-weight:400;color:#94a3b8">('+dm.total+'คน)</span></div>'+
+          '<div style="font-size:11px;color:#64748b;margin-top:2px">'+
+          '<span style="color:#10b981">มา:'+dm.work+'</span> · '+
+          '<span style="color:#f59e0b">สาย:'+dm.late+(dm.lateMin?' ('+dm.lateMin+'น)':'')+'</span> · '+
+          '<span style="color:#ef4444">ป่วย:'+dm.sick+'</span> · '+
+          '<span style="color:#dc2626">ขาด:'+dm.absent+'</span>'+
+          '</div></div>';
+      }).join('');
     }
 
     // ===================== EMP TAB =====================
