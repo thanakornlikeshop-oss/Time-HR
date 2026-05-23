@@ -1404,7 +1404,7 @@
       <!-- Bottom Row -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px" id="dash-bottom">
         <div class="card" style="padding:20px">
-          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">🕐 Top 5 มาสายสะสม (นาที)</div>
+          <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">🕐 Top 5 มาสายสะสม (ครั้ง)</div>
           <div id="dash-top-late"></div>
         </div>
         <div class="card" style="padding:20px">
@@ -2060,7 +2060,7 @@
 
       // --- Top Late (minutes) ---
       var lateMap = {};
-      emps.forEach(function(e){ var m=getLateMinutes(e.id, monthDates); if(m>0) lateMap[e.id]=m; });
+      emps.forEach(function(e){ var s=getStats(e.id, monthDates); if(s.late>0) lateMap[e.id]=s.late; });
       var lateTop = Object.keys(lateMap).sort(function(a,b){return lateMap[b]-lateMap[a];}).slice(0,5);
       var dlEl = document.getElementById('dash-top-late');
       if(!lateTop.length){ dlEl.innerHTML='<div style="color:#94a3b8;font-size:12px;text-align:center;padding:20px">ไม่มีข้อมูลมาสาย</div>'; }
@@ -2068,13 +2068,11 @@
         var maxL = lateMap[lateTop[0]];
         dlEl.innerHTML = lateTop.map(function(id,i){
           var e=emps.find(function(x){return x.id===id;}); if(!e) return '';
-          var mins=lateMap[id], pct=Math.round((mins/maxL)*100);
-          var hrs=Math.floor(mins/60), rm=mins%60;
-          var timeStr = hrs>0?(hrs+'ชม '+(rm>0?rm+'น':'')):(mins+'น');
+          var times=lateMap[id], pct=Math.round((times/maxL)*100);
           return '<div style="margin-bottom:10px">'+
             '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'+
             '<span style="font-size:12px;font-weight:600;color:'+(isDark?'#e2e8f0':'#0f172a')+'">'+(i+1)+'. '+e.nickname+'</span>'+
-            '<span style="font-size:12px;font-weight:700;color:#d97706">'+timeStr+' ('+mins+'น)</span></div>'+
+            '<span style="font-size:12px;font-weight:700;color:#d97706">'+times+' ครั้ง</span></div>'+
             '<div style="background:'+(isDark?'#333':'#e2e8f0')+';border-radius:4px;height:6px">'+
             '<div style="background:linear-gradient(90deg,#f59e0b,#ef4444);height:6px;border-radius:4px;width:'+pct+'%;transition:width .5s"></div></div>'+
             '<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+e.position+'</div></div>';
