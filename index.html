@@ -13,7 +13,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // ===================== SUPABASE CONFIG =====================
-    // !! เปลี่ยน 2 ค่าด้านล่างนี้ให้ตรงกับ Project ของคุณ !!
     const SUPABASE_URL = 'https://pdxexvraapapgerxmxee.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkeGV4dnJhYXBhcGdlcnhteGVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjgyNjcsImV4cCI6MjA5NDQwNDI2N30.RbLKq-3hJckRWgKNmHLNwC0_-MmTMXTouCbNjDKun4k';
 
@@ -1621,6 +1620,11 @@
       return '';
     }
 
+    // ฟังก์ชันเสริมเพื่อแทนที่ makeWs สำหรับแปลง array เป็น excel sheet ป้องกันปัญหาปุ่ม Export สรุป Excel ใช้งานไม่ได้
+    function makeWs(data) {
+      return XLSX.utils.json_to_sheet(data);
+    }
+
     // ===================== RENDER =====================
     function changeDay(n) { cur.setDate(cur.getDate() + n); render(); }
     function goToday() { cur = new Date(TODAY); render(); }
@@ -2885,9 +2889,26 @@
           // โหลด Employees
           var cloudEmps = await sbFetchEmployees();
           if (cloudEmps && cloudEmps.length > 0) { emps = cloudEmps; ssave('employees', emps); }
-          // โหลด Attendance
+          
+          // โหลด Attendance และป้องกันข้อมูลเดิมใน local หายโดยการผสานข้อมูล (Merge) แทนการเขียนทับ (Overwrite) ทั้งหมด
           var cloudAtt = await sbFetchAllAttendance();
-          if (cloudAtt && Object.keys(cloudAtt).length > 0) { att = cloudAtt; ssave('attendance', att); }
+          if (cloudAtt && Object.keys(cloudAtt).length > 0) { 
+            // ผสานข้อมูล: โดยเลือกเก็บข้อมูลที่ล่าสุด หรือเขียนทับเฉพาะคีย์ที่ไม่มีอยู่
+            for (var d in cloudAtt) {
+              if (!att[d]) {
+                att[d] = cloudAtt[d];
+              } else {
+                for (var empId in cloudAtt[d]) {
+                  // หากคีย์ยังไม่เคยถูกบันทึกใน local หรือ local เป็นค่าว่าง จะใช้ข้อมูลจาก Cloud
+                  if (!att[d][empId] || !att[d][empId].code) {
+                    att[d][empId] = cloudAtt[d][empId];
+                  }
+                }
+              }
+            }
+            ssave('attendance', att); 
+          }
+          
           // โหลด Movements
           var cloudMvs = await sbFetchMovements();
           if (cloudMvs && cloudMvs.length > 0) { mvs = cloudMvs; ssave('movements', mvs); }
