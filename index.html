@@ -13,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // ===================== SUPABASE CONFIG =====================
+    // !! เปลี่ยน 2 ค่าด้านล่างนี้ให้ตรงกับ Project ของคุณ !!
     const SUPABASE_URL = 'https://pdxexvraapapgerxmxee.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkeGV4dnJhYXBhcGdlcnhteGVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjgyNjcsImV4cCI6MjA5NDQwNDI2N30.RbLKq-3hJckRWgKNmHLNwC0_-MmTMXTouCbNjDKun4k';
 
@@ -170,6 +171,138 @@
       color: #0f172a;
       letter-spacing: -0.2px
     }
+
+    /* ===== LOGIN ===== */
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+    }
+    #login-box, .login-box-alt {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px 36px;
+      width: 360px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    #login-box .login-logo, .login-box-alt .login-logo {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+    #login-box h2, .login-box-alt h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 0 0 4px;
+    }
+    #login-box .login-sub, .login-box-alt .login-sub {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 20px;
+    }
+    #login-box input, .login-box-alt input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+      transition: border-color .2s;
+      outline: none;
+    }
+    #login-box input:focus, .login-box-alt input:focus { border-color: #3b82f6; }
+    #login-btn {
+      width: 100%;
+      padding: 11px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: background .2s;
+    }
+    #login-btn:hover { background: #1d4ed8; }
+    #google-login-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 11px 16px;
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      color: #374151;
+      transition: background .15s, border-color .15s;
+      margin-bottom: 4px;
+    }
+    #google-login-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .login-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 14px 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .login-divider::before, .login-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e2e8f0;
+    }
+    #login-error {
+      color: #dc2626;
+      font-size: 13px;
+      margin-top: 10px;
+      min-height: 18px;
+      text-align: center;
+    }
+    #user-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      background: #e0f2fe;
+      border-radius: 20px;
+      padding: 4px 12px 4px 8px;
+    }
+    #user-badge img.avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    #logout-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      background: #fee2e2;
+      color: #dc2626;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      transition: background .2s;
+    }
+    #logout-btn:hover { background: #fecaca; }
 
     .date-nav {
       display: flex;
@@ -1173,9 +1306,72 @@
 </head>
 
 <body>
+  <!-- LOGIN OVERLAY -->
+  <div id="login-overlay">
+    <div id="login-box">
+      <div class="login-logo">🏢</div>
+      <h2>HR ไลค์ช็อป</h2>
+      <p class="login-sub">เข้าสู่ระบบด้วยบัญชีองค์กร</p>
+
+      <!-- Google Sign-In -->
+      <button id="google-login-btn" onclick="loginWithGoogle()">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="flex-shrink:0"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
+        <span>เข้าสู่ระบบด้วย Google</span>
+      </button>
+
+      <div class="login-divider"><span>หรือ</span></div>
+
+      <!-- Email/Password -->
+      <input type="email" id="login-email" placeholder="อีเมล (Email)" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()" />
+      <div style="position:relative">
+        <input type="password" id="login-password" placeholder="รหัสผ่าน (Password)" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" style="padding-right:42px" />
+        <span onclick="togglePw()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:#94a3b8" title="แสดง/ซ่อนรหัสผ่าน">👁</span>
+      </div>
+      <button id="login-btn" onclick="doLogin()">เข้าสู่ระบบ</button>
+
+      <div style="display:flex;justify-content:space-between;margin-top:8px">
+        <a href="#" onclick="showForgotPw();return false" style="font-size:12px;color:#3b82f6;text-decoration:none">ลืมรหัสผ่าน?</a>
+        <a href="#" onclick="showSignUp();return false" style="font-size:12px;color:#3b82f6;text-decoration:none">สมัครสมาชิก</a>
+      </div>
+
+      <div id="login-error"></div>
+      <div id="login-info" style="color:#059669;font-size:13px;margin-top:10px;min-height:18px;text-align:center"></div>
+    </div>
+
+    <!-- Forgot Password Panel -->
+    <div id="forgot-box" style="display:none" class="login-box-alt">
+      <div class="login-logo">🔑</div>
+      <h2>รีเซ็ตรหัสผ่าน</h2>
+      <p class="login-sub">ระบบจะส่งลิงก์รีเซ็ตไปยังอีเมลของคุณ</p>
+      <input type="email" id="forgot-email" placeholder="อีเมลที่ลงทะเบียนไว้" />
+      <button id="login-btn" onclick="doForgotPw()">ส่งลิงก์รีเซ็ต</button>
+      <a href="#" onclick="showLoginPanel();return false" style="display:block;margin-top:12px;font-size:13px;color:#3b82f6;text-decoration:none;text-align:center">← กลับหน้าล็อกอิน</a>
+      <div id="forgot-msg" style="font-size:13px;margin-top:10px;text-align:center;min-height:18px"></div>
+    </div>
+
+    <!-- Sign Up Panel -->
+    <div id="signup-box" style="display:none" class="login-box-alt">
+      <div class="login-logo">✨</div>
+      <h2>สมัครสมาชิก</h2>
+      <p class="login-sub">สร้างบัญชีใหม่ด้วยอีเมล</p>
+      <input type="email" id="signup-email" placeholder="อีเมล" />
+      <input type="password" id="signup-password" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" />
+      <input type="password" id="signup-password2" placeholder="ยืนยันรหัสผ่าน" onkeydown="if(event.key==='Enter')doSignUp()" />
+      <button id="login-btn" onclick="doSignUp()">สมัครสมาชิก</button>
+      <a href="#" onclick="showLoginPanel();return false" style="display:block;margin-top:12px;font-size:13px;color:#3b82f6;text-decoration:none;text-align:center">← กลับหน้าล็อกอิน</a>
+      <div id="signup-msg" style="font-size:13px;margin-top:10px;text-align:center;min-height:18px"></div>
+    </div>
+  </div>
+
   <!-- TOPBAR -->
   <div class="topbar">
     <span class="app-title">HR ไลค์ช็อป</span>
+    <div id="user-badge" style="display:none">
+      <img class="avatar" id="user-avatar" src="" alt="" onerror="this.style.display='none'" style="display:none" />
+      <span>👤</span>
+      <span id="user-display-name"></span>
+      <button id="logout-btn" onclick="doLogout()">ออกจากระบบ</button>
+    </div>
     <div class="date-nav">
       <button onclick="changeDay(-1)">&#8592;</button>
       <span id="date-label"></span>
@@ -1618,11 +1814,6 @@
         if (note.indexOf(keys[i]) >= 0 && keys[i] !== 'กะงาน 4') return SHIFT_TIMES[keys[i]];
       }
       return '';
-    }
-
-    // ฟังก์ชันเสริมเพื่อแทนที่ makeWs สำหรับแปลง array เป็น excel sheet ป้องกันปัญหาปุ่ม Export สรุป Excel ใช้งานไม่ได้
-    function makeWs(data) {
-      return XLSX.utils.json_to_sheet(data);
     }
 
     // ===================== RENDER =====================
@@ -2876,6 +3067,175 @@
     });
     document.getElementById('ae-start').value = dk(new Date());
 
+    // ===== LOGIN SYSTEM =====
+    // ===== SUPABASE AUTH SYSTEM =====
+
+    function showLoginPanel() {
+      document.getElementById('login-box').style.display = '';
+      document.getElementById('forgot-box').style.display = 'none';
+      document.getElementById('signup-box').style.display = 'none';
+    }
+    function showForgotPw() {
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('forgot-box').style.display = '';
+      document.getElementById('signup-box').style.display = 'none';
+    }
+    function showSignUp() {
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('forgot-box').style.display = 'none';
+      document.getElementById('signup-box').style.display = '';
+    }
+    function togglePw() {
+      var inp = document.getElementById('login-password');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }
+
+    // ===== currentUserRole เก็บ role จาก profiles =====
+    var currentUserRole = 'viewer';
+
+    async function loadProfile(userId) {
+      var { data } = await _sb.from('profiles').select('full_name, avatar_url, role').eq('id', userId).single();
+      return data;
+    }
+
+    async function showApp(user) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('user-badge').style.display = 'flex';
+
+      // ดึง profile จาก Supabase
+      var profile = await loadProfile(user.id);
+      var name = (profile && profile.full_name)
+        || (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name))
+        || user.email || 'ผู้ใช้';
+      var avatar = (profile && profile.avatar_url)
+        || (user.user_metadata && user.user_metadata.avatar_url);
+      currentUserRole = (profile && profile.role) || 'viewer';
+
+      document.getElementById('user-display-name').textContent = name;
+
+      // แสดง role badge
+      var roleTh = { admin: 'ผู้ดูแล', hr: 'HR', manager: 'ผู้จัดการ', viewer: 'ผู้ชม' };
+      var roleColors = { admin: '#7c3aed', hr: '#0284c7', manager: '#0f766e', viewer: '#64748b' };
+      var existingRole = document.getElementById('user-role-tag');
+      if (existingRole) existingRole.remove();
+      var roleTag = document.createElement('span');
+      roleTag.id = 'user-role-tag';
+      roleTag.textContent = roleTh[currentUserRole] || currentUserRole;
+      roleTag.style.cssText = 'font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;color:#fff;background:' + (roleColors[currentUserRole] || '#64748b');
+      document.getElementById('user-display-name').after(roleTag);
+
+      var avatarEl = document.getElementById('user-avatar');
+      var iconEl = avatarEl.nextElementSibling;
+      if (avatar) {
+        avatarEl.src = avatar;
+        avatarEl.style.display = '';
+        if (iconEl) iconEl.style.display = 'none';
+      } else {
+        avatarEl.style.display = 'none';
+        if (iconEl) iconEl.style.display = '';
+      }
+    }
+
+    async function loginWithGoogle() {
+      var errEl = document.getElementById('login-error');
+      errEl.textContent = '';
+      var { error } = await _sb.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.href }
+      });
+      if (error) errEl.textContent = '❌ ' + error.message;
+    }
+
+    async function doLogin() {
+      var email = document.getElementById('login-email').value.trim();
+      var pass  = document.getElementById('login-password').value;
+      var errEl = document.getElementById('login-error');
+      errEl.textContent = '';
+      if (!email || !pass) { errEl.textContent = '❌ กรุณากรอกอีเมลและรหัสผ่าน'; return; }
+      var btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.textContent = 'กำลังเข้าสู่ระบบ...';
+      var { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+      btn.disabled = false; btn.textContent = 'เข้าสู่ระบบ';
+      if (error) {
+        errEl.textContent = '❌ ' + (error.message === 'Invalid login credentials' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : error.message);
+      } else {
+        await showApp(data.user);
+        initApp();
+      }
+    }
+
+    async function doSignUp() {
+      var email = document.getElementById('signup-email').value.trim();
+      var pass  = document.getElementById('signup-password').value;
+      var pass2 = document.getElementById('signup-password2').value;
+      var msgEl = document.getElementById('signup-msg');
+      msgEl.style.color = '#dc2626'; msgEl.textContent = '';
+      if (!email) { msgEl.textContent = '❌ กรุณากรอกอีเมล'; return; }
+      if (pass.length < 6) { msgEl.textContent = '❌ รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'; return; }
+      if (pass !== pass2) { msgEl.textContent = '❌ รหัสผ่านไม่ตรงกัน'; return; }
+      var btn = event.target; btn.disabled = true; btn.textContent = 'กำลังสมัคร...';
+      var { error } = await _sb.auth.signUp({ email, password: pass });
+      btn.disabled = false; btn.textContent = 'สมัครสมาชิก';
+      if (error) {
+        msgEl.textContent = '❌ ' + error.message;
+      } else {
+        msgEl.style.color = '#059669';
+        msgEl.textContent = '✅ สมัครสำเร็จ! กรุณาตรวจสอบอีเมลเพื่อยืนยันบัญชี';
+      }
+    }
+
+    async function doForgotPw() {
+      var email = document.getElementById('forgot-email').value.trim();
+      var msgEl = document.getElementById('forgot-msg');
+      msgEl.style.color = '#dc2626'; msgEl.textContent = '';
+      if (!email) { msgEl.textContent = '❌ กรุณากรอกอีเมล'; return; }
+      var btn = event.target; btn.disabled = true; btn.textContent = 'กำลังส่ง...';
+      var { error } = await _sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+      btn.disabled = false; btn.textContent = 'ส่งลิงก์รีเซ็ต';
+      if (error) {
+        msgEl.textContent = '❌ ' + error.message;
+      } else {
+        msgEl.style.color = '#059669';
+        msgEl.textContent = '✅ ส่งลิงก์รีเซ็ตไปที่อีเมลแล้ว กรุณาตรวจสอบ Inbox';
+      }
+    }
+
+    async function doLogout() {
+      if (!confirm('ต้องการออกจากระบบหรือไม่?')) return;
+      await _sb.auth.signOut();
+      currentUserRole = 'viewer';
+      document.getElementById('login-overlay').style.display = 'flex';
+      document.getElementById('user-badge').style.display = 'none';
+      showLoginPanel();
+      document.getElementById('login-error').textContent = '';
+    }
+
+    async function checkSession() {
+      var { data: { session } } = await _sb.auth.getSession();
+      if (session && session.user) {
+        await showApp(session.user);
+        return true;
+      }
+      return false;
+    }
+
+    // ฟัง auth state change (รองรับ OAuth redirect callback)
+    var _authInitDone = false;
+    _sb.auth.onAuthStateChange(async function(event, session) {
+      if (event === 'SIGNED_IN' && session) {
+        var overlayHidden = document.getElementById('login-overlay').style.display === 'none';
+        await showApp(session.user);
+        if (!overlayHidden && !_authInitDone) {
+          _authInitDone = true;
+          initApp();
+        }
+      } else if (event === 'SIGNED_OUT') {
+        currentUserRole = 'viewer';
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('user-badge').style.display = 'none';
+      }
+    });
+
     async function initApp() {
       // แสดง loading ถ้า Supabase พร้อมใช้งาน
       var overlay = null;
@@ -2889,26 +3249,9 @@
           // โหลด Employees
           var cloudEmps = await sbFetchEmployees();
           if (cloudEmps && cloudEmps.length > 0) { emps = cloudEmps; ssave('employees', emps); }
-          
-          // โหลด Attendance และป้องกันข้อมูลเดิมใน local หายโดยการผสานข้อมูล (Merge) แทนการเขียนทับ (Overwrite) ทั้งหมด
+          // โหลด Attendance
           var cloudAtt = await sbFetchAllAttendance();
-          if (cloudAtt && Object.keys(cloudAtt).length > 0) { 
-            // ผสานข้อมูล: โดยเลือกเก็บข้อมูลที่ล่าสุด หรือเขียนทับเฉพาะคีย์ที่ไม่มีอยู่
-            for (var d in cloudAtt) {
-              if (!att[d]) {
-                att[d] = cloudAtt[d];
-              } else {
-                for (var empId in cloudAtt[d]) {
-                  // หากคีย์ยังไม่เคยถูกบันทึกใน local หรือ local เป็นค่าว่าง จะใช้ข้อมูลจาก Cloud
-                  if (!att[d][empId] || !att[d][empId].code) {
-                    att[d][empId] = cloudAtt[d][empId];
-                  }
-                }
-              }
-            }
-            ssave('attendance', att); 
-          }
-          
+          if (cloudAtt && Object.keys(cloudAtt).length > 0) { att = cloudAtt; ssave('attendance', att); }
           // โหลด Movements
           var cloudMvs = await sbFetchMovements();
           if (cloudMvs && cloudMvs.length > 0) { mvs = cloudMvs; ssave('movements', mvs); }
@@ -2921,7 +3264,10 @@
       fillFilters();
     }
 
-    initApp();
+    (async function() {
+      var loggedIn = await checkSession();
+      if (loggedIn) initApp();
+    })();
   </script>
 </body>
 
