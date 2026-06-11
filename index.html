@@ -199,7 +199,7 @@
   <style>
     /* Modern Minimal Reset */
     * { box-sizing: border-box; margin: 0; padding: 0 }
-    body { font-family: 'Noto Sans Thai', sans-serif; font-size: 14px; background: #cbd5e1; color: #1e293b; height: 100vh; overflow: hidden; display: flex; flex-direction: column }
+    body { font-family: 'Noto Sans Thai', sans-serif; font-size: 14px; background: #f0f4f8; color: #1e293b; height: 100vh; overflow: hidden; display: flex; flex-direction: column }
     .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #f4f6f8; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); flex-shrink: 0; flex-wrap: wrap; z-index: 10; }
     .app-title { font-size: 16px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px }
 
@@ -309,7 +309,7 @@
     .shift-cell { font-size: 12px; color: #475569; white-space: nowrap }
 
     /* Quick mode */
-    .qwrap { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 32px 20px; background: #cbd5e1 }
+    .qwrap { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 32px 20px; background: #f0f4f8 }
     .qbox { background: #f4f6f8; border: 1px solid #94a3b8; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); border-radius: 16px; padding: 24px; width: 100%; max-width: 500px; height: fit-content }
     .qsearch { width: 100%; border: 1px solid #94a3b8; border-radius: 10px; padding: 12px 16px; font-size: 15px; font-family: inherit; background: #ffffff; transition: all 0.2s }
     .qsearch:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
@@ -327,7 +327,7 @@
     .qsave:hover { background: #1d4ed8; transform: translateY(-1px) }
 
     /* Cards (Summary/Emp) */
-    .panel { flex: 1; overflow: auto; padding: 20px; background: #cbd5e1 }
+    .panel { flex: 1; overflow: auto; padding: 20px; background: #f0f4f8 }
     .card { background: #f4f6f8; border: 1px solid #94a3b8; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border-radius: 16px; overflow: hidden; margin-bottom: 16px }
     .card-head { padding: 14px 20px; border-bottom: 1px solid #cbd5e1; font-weight: 700; font-size: 14px; display: flex; justify-content: space-between; align-items: center; color: #0f172a }
     .day-cards { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 20px }
@@ -357,6 +357,13 @@
     .mac { display: flex; gap: 12px; margin-top: 24px }
     .mac .btn { flex: 1; padding: 10px; font-size: 14px }
     .empty { text-align: center; padding: 40px; color: #94a3b8; font-size: 14px }
+
+    /* Employee Table */
+    .et { border-collapse: collapse; width: 100% }
+    .et thead th { background: #e8eef4; font-weight: 700; color: #0f172a; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #cbd5e1 }
+    .et tbody tr { transition: background 0.1s }
+    .et tbody tr:hover td { background: #e8f4fd }
+    .et tbody td { padding: 10px 16px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; font-size: 13px }
 
     /* Sync Bar */
     #sync-bar { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; color: #166534 }
@@ -457,10 +464,6 @@
       <button onclick="changeDay(1)">&#8594;</button>
     </div>
     <button class="btn" onclick="goToday()" style="padding:4px 10px;font-size:12px;border-radius:6px">วันนี้</button>
-    <div class="mode-toggle">
-      <button class="mt-btn active" id="mt-table" onclick="setMode('table')">แบบตาราง</button>
-      <button class="mt-btn" id="mt-quick" onclick="setMode('quick')">แบบด่วน</button>
-    </div>
     <button class="btn" onclick="toggleDarkMode()" style="padding:6px 10px;font-size:14px;border-radius:8px" title="สลับโหมดกลางคืน">🌙</button>
     
     <div class="tbr">
@@ -656,12 +659,32 @@
   </div>
 
   <!-- EMP TAB -->
-  <div id="view-emp" style="display:none;flex:1;overflow:auto;min-height:0">
+  <div id="view-emp" style="display:none;flex-direction:column;flex:1;overflow:auto;min-height:0">
     <div class="panel">
+      <!-- Employee Stats Bar -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 18px;display:flex;flex-direction:column;align-items:center;min-width:80px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <span id="emp-count-total" style="font-size:22px;font-weight:800;color:#2563eb">0</span>
+          <span style="font-size:11px;color:#64748b;margin-top:2px">พนักงานทั้งหมด</span>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 18px;display:flex;flex-direction:column;align-items:center;min-width:80px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <span id="emp-count-today" style="font-size:22px;font-weight:800;color:#10b981">0</span>
+          <span style="font-size:11px;color:#64748b;margin-top:2px">มาวันนี้</span>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 18px;display:flex;flex-direction:column;align-items:center;min-width:80px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <span id="emp-count-absent" style="font-size:22px;font-weight:800;color:#ef4444">0</span>
+          <span style="font-size:11px;color:#64748b;margin-top:2px">ขาด/ลา</span>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 18px;display:flex;flex-direction:column;align-items:center;min-width:80px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <span id="emp-count-dept" style="font-size:22px;font-weight:800;color:#8b5cf6">0</span>
+          <span style="font-size:11px;color:#64748b;margin-top:2px">แผนก</span>
+        </div>
+      </div>
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
         <input class="srch" id="esrch" type="text" placeholder="🔍 ค้นหาพนักงาน..." oninput="renderEmp()" style="max-width:240px;background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
         <select class="filt" id="epf" onchange="renderEmp()" style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)"><option value="">ทุกแผนก</option></select>
         <div style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn" style="background:#ecfdf5;color:#047857;border-color:#a7f3d0" onclick="exportEmpCSV()">📥 Export CSV</button>
           <button class="btn" onclick="showMv('new')" style="background:#ecfdf5;color:#047857;border-color:#a7f3d0">&#x1F7E2; บันทึกเข้าใหม่</button>
           <button class="btn" onclick="showMv('out')" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">&#x1F534; บันทึกพ้นสภาพ</button>
           <button class="btn btn-blue" onclick="showModal('add-modal')">+ เพิ่มข้อมูลพนักงาน</button>
@@ -970,9 +993,180 @@
       mode = m;
       document.getElementById('mode-table').style.display = m === 'table' ? 'flex' : 'none';
       document.getElementById('mode-quick').style.display = m === 'quick' ? 'flex' : 'none';
-      document.getElementById('mt-table').className = 'mt-btn' + (m === 'table' ? ' active' : '');
-      document.getElementById('mt-quick').className = 'mt-btn' + (m === 'quick' ? ' active' : '');
       if (m === 'table') renderTable();
+    }
+
+    // ===================== EMPLOYEE TAB =====================
+    function renderEmp() {
+      var q = (document.getElementById('esrch').value || '').toLowerCase();
+      var pf = document.getElementById('epf').value;
+      var list = emps.filter(function(e) {
+        if (pf && e.position !== pf) return false;
+        if (q && e.name.toLowerCase().indexOf(q) < 0 && (e.nickname||'').toLowerCase().indexOf(q) < 0) return false;
+        return true;
+      });
+      fillFilters();
+      // Update stats bar
+      var today = dk(new Date(TODAY));
+      var todayCount = 0, absentCount = 0;
+      emps.forEach(function(e) {
+        var c = ge(e.id, today).code;
+        if (c === '1' || c === 'ส' || c === 'f' || c === 's' || c === 'b') todayCount++;
+        else if (c === 'ป' || c === 'ข' || c === 'ร' || c === 'ก') absentCount++;
+      });
+      var deptCount = new Set(emps.map(function(e){ return e.position; }).filter(Boolean)).size;
+      var elTotal = document.getElementById('emp-count-total');
+      var elToday = document.getElementById('emp-count-today');
+      var elAbsent = document.getElementById('emp-count-absent');
+      var elDept = document.getElementById('emp-count-dept');
+      if (elTotal) elTotal.textContent = emps.length;
+      if (elToday) elToday.textContent = todayCount;
+      if (elAbsent) elAbsent.textContent = absentCount;
+      if (elDept) elDept.textContent = deptCount;
+      var tb = document.getElementById('etbody');
+      if (!list.length) {
+        tb.innerHTML = '<tr><td colspan="6" class="empty">ไม่มีข้อมูลพนักงานที่ตรงกับเงื่อนไข</td></tr>';
+      } else {
+        tb.innerHTML = list.map(function(e, i) {
+          var start = e.startDate ? e.startDate : '—';
+          var today = dk(new Date(TODAY));
+          var att_today = ge(e.id, today);
+          var badge = '';
+          if (att_today.code === '1' || att_today.code === 'b') badge = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-left:6px" title="มาทำงานวันนี้"></span>';
+          else if (att_today.code === 'ส') badge = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-left:6px" title="มาสาย"></span>';
+          else if (att_today.code === 'ป') badge = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-left:6px" title="ลาป่วย"></span>';
+          return '<tr>' +
+            '<td style="color:#94a3b8;font-size:12px;text-align:center">' + (i+1) + '</td>' +
+            '<td><span style="font-weight:700;color:#0f172a">' + e.name + '</span>' + badge + '</td>' +
+            '<td style="color:#2563eb;font-weight:600">' + (e.nickname || '—') + '</td>' +
+            '<td><span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600">' + (e.position || '—') + '</span></td>' +
+            '<td style="color:#64748b;font-size:13px">' + start + '</td>' +
+            '<td style="text-align:center">' +
+              '<button class="btn" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="openEditEmp(\'' + e.id + '\')">✏️ แก้ไข</button>' +
+              '<button class="btn" style="padding:4px 10px;font-size:12px;background:#fef2f2;color:#b91c1c;border-color:#fecaca" onclick="confirmDeleteEmp(\'' + e.id + '\',\'' + e.name.replace(/'/g,"\\'")+'\')">🗑 ลบ</button>' +
+            '</td></tr>';
+        }).join('');
+      }
+      renderMv();
+    }
+
+    function renderMv() {
+      var now = new Date(TODAY);
+      var ym = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+      var thisMonth = mvs.filter(function(m) { return (m.date||'').startsWith(ym); });
+      var newList = thisMonth.filter(function(m) { return m.type === 'new'; });
+      var outList = thisMonth.filter(function(m) { return m.type === 'out'; });
+      var mvNew = document.getElementById('mv-new');
+      var mvOut = document.getElementById('mv-out');
+      if (mvNew) mvNew.innerHTML = newList.length ? newList.map(function(m) {
+        return '<div class="mv-row"><span style="font-weight:600">' + (m.nickname||m.name) + '</span><span style="color:#64748b;font-size:12px">' + (m.position||'') + '</span><span style="color:#94a3b8;font-size:12px">' + (m.date||'') + '</span>' +
+          '<button onclick="deleteMv(\'' + m.id + '\')" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 4px" title="ลบ">✕</button></div>';
+      }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0">ยังไม่มีข้อมูล</div>';
+      if (mvOut) mvOut.innerHTML = outList.length ? outList.map(function(m) {
+        return '<div class="mv-row"><span style="font-weight:600">' + (m.nickname||m.name) + '</span><span style="color:#64748b;font-size:12px">' + (m.position||'') + '</span><span style="color:#94a3b8;font-size:12px">' + (m.date||'') + '</span>' +
+          '<button onclick="deleteMv(\'' + m.id + '\')" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 4px" title="ลบ">✕</button></div>';
+      }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:8px 0">ยังไม่มีข้อมูล</div>';
+    }
+
+    function saveEmp() {
+      var name = document.getElementById('ae-name').value.trim();
+      var nick = document.getElementById('ae-nick').value.trim();
+      var pos  = document.getElementById('ae-pos').value.trim();
+      var start = document.getElementById('ae-start').value;
+      if (!name) { alert('กรุณากรอกชื่อ-นามสกุล'); return; }
+      var newEmp = { id: Date.now().toString(), name: name, nickname: nick, position: pos, startDate: start };
+      emps.push(newEmp);
+      ssave('employees', emps);
+      sbUpsertEmployee(newEmp);
+      document.getElementById('ae-name').value = '';
+      document.getElementById('ae-nick').value = '';
+      document.getElementById('ae-pos').value = '';
+      document.getElementById('ae-start').value = '';
+      closeModal('add-modal');
+      renderEmp();
+      fillFilters();
+    }
+
+    function openEditEmp(id) {
+      var e = emps.find(function(x) { return x.id === id; });
+      if (!e) return;
+      document.getElementById('ee-id').value = e.id;
+      document.getElementById('ee-name').value = e.name || '';
+      document.getElementById('ee-nick').value = e.nickname || '';
+      document.getElementById('ee-pos').value = e.position || '';
+      document.getElementById('ee-start').value = e.startDate || '';
+      showModal('edit-emp-modal');
+    }
+
+    function saveEditEmp() {
+      var id = document.getElementById('ee-id').value;
+      var idx = emps.findIndex(function(x) { return x.id === id; });
+      if (idx < 0) return;
+      emps[idx].name = document.getElementById('ee-name').value.trim();
+      emps[idx].nickname = document.getElementById('ee-nick').value.trim();
+      emps[idx].position = document.getElementById('ee-pos').value.trim();
+      emps[idx].startDate = document.getElementById('ee-start').value;
+      ssave('employees', emps);
+      sbUpsertEmployee(emps[idx]);
+      closeModal('edit-emp-modal');
+      renderEmp();
+      fillFilters();
+    }
+
+    function confirmDeleteEmp(id, name) {
+      if (!confirm('ยืนยันลบพนักงาน: ' + name + '\n\nการลบจะลบข้อมูลพนักงานออกจากระบบ')) return;
+      emps = emps.filter(function(e) { return e.id !== id; });
+      ssave('employees', emps);
+      sbDeleteEmployee(id);
+      renderEmp();
+      fillFilters();
+    }
+
+    function showMv(type) {
+      document.getElementById('mv-title').textContent = type === 'new' ? '🟢 บันทึกพนักงานเข้าใหม่' : '🔴 บันทึกพนักงานพ้นสภาพ';
+      document.getElementById('mv-modal').dataset.mvtype = type;
+      document.getElementById('mv-name').value = '';
+      document.getElementById('mv-nick').value = '';
+      document.getElementById('mv-pos').value = '';
+      document.getElementById('mv-date').value = dk(new Date(TODAY));
+      document.getElementById('mv-note').value = '';
+      showModal('mv-modal');
+    }
+
+    function saveMv() {
+      var type = document.getElementById('mv-modal').dataset.mvtype || 'new';
+      var name = document.getElementById('mv-name').value.trim();
+      var nick = document.getElementById('mv-nick').value.trim();
+      var pos  = document.getElementById('mv-pos').value.trim();
+      var date = document.getElementById('mv-date').value;
+      var note = document.getElementById('mv-note').value.trim();
+      if (!name) { alert('กรุณากรอกชื่อ-นามสกุล'); return; }
+      var mv = { id: Date.now().toString(), type: type, name: name, nickname: nick, position: pos, date: date, note: note };
+      mvs.push(mv);
+      ssave('movements', mvs);
+      sbInsertMovement(mv);
+      closeModal('mv-modal');
+      renderMv();
+    }
+
+    function deleteMv(id) {
+      if (!confirm('ลบรายการนี้?')) return;
+      mvs = mvs.filter(function(m) { return m.id !== id; });
+      ssave('movements', mvs);
+      sbDeleteMovement(id);
+      renderMv();
+    }
+
+    function exportEmpCSV() {
+      var rows = [['#','ชื่อ-นามสกุล','ชื่อเล่น','ตำแหน่ง','วันที่เริ่มงาน']];
+      emps.forEach(function(e, i) {
+        rows.push([i+1, e.name, e.nickname||'', e.position||'', e.startDate||'']);
+      });
+      var csv = rows.map(function(r) { return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','); }).join('\n');
+      var blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = 'employees_' + dk(new Date(TODAY)) + '.csv';
+      a.click();
     }
 
     // ===================== QUICK MODE =====================
@@ -1025,7 +1219,7 @@
     // ===================== TABS =====================
     function showTab(t) {
       ['daily', 'summary', 'dashboard', 'emp'].forEach(function (x) {
-        document.getElementById('view-' + x).style.display = t === x ? (x === 'daily' ? 'flex' : 'block') : 'none';
+        document.getElementById('view-' + x).style.display = t === x ? (x === 'daily' || x === 'emp' ? 'flex' : 'block') : 'none';
         var el = document.getElementById('tab-' + x); if (el) el.className = 'tab' + (t === x ? ' active' : '');
       });
       if (t === 'summary') renderSummary();
