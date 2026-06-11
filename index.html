@@ -33,55 +33,82 @@
     }
 
     async function sbUpsertEmployee(emp) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('employees').upsert(
           { id: emp.id, name: emp.name, nickname: emp.nickname, position: emp.position, start_date: emp.startDate || null },
           { onConflict: 'id' }
         );
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] upsertEmployee:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] upsertEmployee:', err.message);
+        return { success: false, error: err };
+      }
     }
 
     async function sbDeleteEmployee(id) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('employees').delete().eq('id', id);
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] deleteEmployee:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] deleteEmployee:', err.message);
+        return { success: false, error: err };
+      }
     }
 
     async function sbFetchAllAttendance() {
       if (!SUPABASE_READY) return null;
       try {
-        const { data, error } = await _sb.from('attendance').select('*');
-        if (error) throw error;
+        // ดึงข้อมูลทั้งหมดแบบ pagination เพื่อเลี่ยง limit 1000 row
+        var allData = [];
+        var pageSize = 1000;
+        var from = 0;
+        while (true) {
+          const { data, error } = await _sb.from('attendance').select('*').range(from, from + pageSize - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          allData = allData.concat(data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        console.log('[Supabase] fetchAllAttendance: ดึงได้ ' + allData.length + ' rows');
         var result = {};
-        data.forEach(function (row) {
+        allData.forEach(function (row) {
           if (!result[row.date]) result[row.date] = {};
           result[row.date][row.employee_id] = { code: row.code || '', note: row.note || '' };
         });
         return result;
-      } catch (err) { console.warn('[Supabase] fetchAllAttendance:', err.message); return null; }
+      } catch (err) { console.error('[Supabase] fetchAllAttendance FAILED:', err.message); return null; }
     }
 
     async function sbUpsertAttendance(employeeId, date, code, note) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('attendance').upsert(
           { employee_id: employeeId, date: date, code: code || '', note: note || '' },
           { onConflict: 'employee_id,date' }
         );
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] upsertAttendance:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] upsertAttendance:', err.message);
+        return { success: false, error: err };
+      }
     }
 
     async function sbDeleteAttendanceByDate(date) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('attendance').delete().eq('date', date);
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] deleteAttendanceByDate:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] deleteAttendanceByDate:', err.message);
+        return { success: false, error: err };
+      }
     }
 
     async function sbFetchMovements() {
@@ -96,1212 +123,264 @@
     }
 
     async function sbInsertMovement(mv) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('movements').insert(
           { id: mv.id, type: mv.type, name: mv.name, nick: mv.nick || '', pos: mv.pos || '', date: mv.date, note: mv.note || '' }
         );
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] insertMovement:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] insertMovement:', err.message);
+        return { success: false, error: err };
+      }
     }
 
     async function sbDeleteMovement(id) {
-      if (!SUPABASE_READY) return;
+      if (!SUPABASE_READY) return { success: false, error: 'Supabase not ready' };
       try {
         const { error } = await _sb.from('movements').delete().eq('id', id);
         if (error) throw error;
-      } catch (err) { console.warn('[Supabase] deleteMovement:', err.message); }
+        return { success: true };
+      } catch (err) {
+        console.warn('[Supabase] deleteMovement:', err.message);
+        return { success: false, error: err };
+      }
     }
 
-    // ===================== MIGRATE LOCAL → SUPABASE (รันครั้งเดียว) =====================
+    // ===================== MIGRATE LOCAL → SUPABASE =====================
     async function migrateLocalToSupabase() {
       if (!SUPABASE_READY) { alert('กรุณาตั้งค่า SUPABASE_URL และ SUPABASE_ANON_KEY ก่อนครับ'); return; }
-      if (!confirm('ยืนยันการ Migrate ข้อมูลจาก localStorage ขึ้น Supabase?\n(ควรทำเพียงครั้งเดียว)')) return;
-      var empCount = 0, attCount = 0, mvCount = 0;
-      setSyncStatus('⏳ กำลัง Migrate...');
-      for (var i = 0; i < emps.length; i++) { await sbUpsertEmployee(emps[i]); empCount++; }
+      if (!confirm('ยืนยันการ Push ข้อมูลจากเครื่องนี้ขึ้น Supabase Cloud?\n(ข้อมูลจะถูก merge เข้ากับข้อมูลที่มีอยู่บน Cloud)')) return;
+      var empCount = 0, attCount = 0, mvCount = 0, errCount = 0;
+      setSyncStatus('⏳ กำลัง Push ข้อมูลขึ้น Cloud...');
+      console.log('[Migrate] เริ่ม push ข้อมูล...');
+      
+      // Push Employees
+      for (var i = 0; i < emps.length; i++) {
+        var res = await sbUpsertEmployee(emps[i]);
+        if (res && res.success) { empCount++; }
+        else { console.error('[Migrate] emp error:', emps[i].id, res ? res.error : 'unknown'); errCount++; }
+      }
+      console.log('[Migrate] Employees pushed:', empCount);
+      
+      // Push Attendance
       var dates = Object.keys(att);
       for (var d = 0; d < dates.length; d++) {
         var eids = Object.keys(att[dates[d]]);
         for (var e = 0; e < eids.length; e++) {
           var entry = att[dates[d]][eids[e]];
-          if (entry.code) { await sbUpsertAttendance(eids[e], dates[d], entry.code, entry.note); attCount++; }
+          if (entry.code) {
+            var res = await sbUpsertAttendance(eids[e], dates[d], entry.code, entry.note);
+            if (res && res.success) { attCount++; }
+            else { console.error('[Migrate] att error:', dates[d], eids[e], res ? res.error : 'unknown'); errCount++; }
+          }
         }
       }
-      for (var m = 0; m < mvs.length; m++) { await sbInsertMovement(mvs[m]); mvCount++; }
-      setSyncStatus('✅ Migration เสร็จ! พนักงาน:' + empCount + ' Att:' + attCount + ' Mvs:' + mvCount);
-      alert('Migration เสร็จสิ้น!\n✅ พนักงาน: ' + empCount + ' คน\n✅ Attendance: ' + attCount + ' รายการ\n✅ Movements: ' + mvCount + ' รายการ');
+      console.log('[Migrate] Attendance pushed:', attCount);
+      
+      // Push Movements
+      for (var m = 0; m < mvs.length; m++) {
+        var res = await sbInsertMovement(mvs[m]);
+        if (res && res.success) { mvCount++; }
+        else { console.error('[Migrate] mv error:', mvs[m].id, res ? res.error : 'unknown'); errCount++; }
+      }
+      console.log('[Migrate] Movements pushed:', mvCount);
+      
+      var msg = 'Push เสร็จสิ้น!\n✅ พนักงาน: ' + empCount + ' คน\n✅ Attendance: ' + attCount + ' รายการ\n✅ Movements: ' + mvCount + ' รายการ';
+      if (errCount > 0) msg += '\n⚠️ ข้อผิดพลาด: ' + errCount + ' รายการ (ดู Console)';
+      setSyncStatus('✅ Push เสร็จ! Emp:' + empCount + ' Att:' + attCount + ' Mv:' + mvCount + (errCount ? ' ❌Err:'+errCount : ''));
+      alert(msg);
+      
+      await mergeFromCloud();
+      render(); fillFilters();
     }
   </script>
   <style>
     /* Modern Minimal Reset */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0
-    }
-
-    body {
-      font-family: 'Noto Sans Thai', sans-serif;
-      font-size: 14px;
-      background: #cbd5e1;
-      color: #1e293b;
-      height: 100vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column
-    }
-
-    /* Topbar */
-    .topbar {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 20px;
-      background: #f4f6f8;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-      flex-shrink: 0;
-      flex-wrap: wrap;
-      z-index: 10;
-    }
-
-    .app-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #0f172a;
-      letter-spacing: -0.2px
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+    body { font-family: 'Noto Sans Thai', sans-serif; font-size: 14px; background: #cbd5e1; color: #1e293b; height: 100vh; overflow: hidden; display: flex; flex-direction: column }
+    .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #f4f6f8; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); flex-shrink: 0; flex-wrap: wrap; z-index: 10; }
+    .app-title { font-size: 16px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px }
 
     /* ===== LOGIN ===== */
-    #login-overlay {
-      position: fixed;
-      inset: 0;
-      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 99999;
-    }
-    #login-box, .login-box-alt {
-      background: #fff;
-      border-radius: 16px;
-      padding: 40px 36px;
-      width: 360px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-      text-align: center;
-    }
-    #login-box .login-logo, .login-box-alt .login-logo {
-      font-size: 40px;
-      margin-bottom: 8px;
-    }
-    #login-box h2, .login-box-alt h2 {
-      font-size: 20px;
-      font-weight: 700;
-      color: #0f172a;
-      margin: 0 0 4px;
-    }
-    #login-box .login-sub, .login-box-alt .login-sub {
-      font-size: 13px;
-      color: #64748b;
-      margin-bottom: 20px;
-    }
-    #login-box input, .login-box-alt input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1.5px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      font-family: inherit;
-      margin-bottom: 10px;
-      box-sizing: border-box;
-      transition: border-color .2s;
-      outline: none;
-    }
+    #login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%); display: flex; align-items: center; justify-content: center; z-index: 99999; }
+    #login-box, .login-box-alt { background: #fff; border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); text-align: center; }
+    #login-box .login-logo, .login-box-alt .login-logo { font-size: 40px; margin-bottom: 8px; }
+    #login-box h2, .login-box-alt h2 { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px; }
+    #login-box .login-sub, .login-box-alt .login-sub { font-size: 13px; color: #64748b; margin-bottom: 20px; }
+    #login-box input, .login-box-alt input { width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; margin-bottom: 10px; box-sizing: border-box; transition: border-color .2s; outline: none; }
     #login-box input:focus, .login-box-alt input:focus { border-color: #3b82f6; }
-    #login-btn {
-      width: 100%;
-      padding: 11px;
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      margin-top: 4px;
-      transition: background .2s;
-    }
+    #login-btn { width: 100%; padding: 11px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; margin-top: 4px; transition: background .2s; }
     #login-btn:hover { background: #1d4ed8; }
-    #google-login-btn {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 11px 16px;
-      background: #fff;
-      border: 1.5px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      color: #374151;
-      transition: background .15s, border-color .15s;
-      margin-bottom: 4px;
-    }
+    #google-login-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 16px; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; color: #374151; transition: background .15s, border-color .15s; margin-bottom: 4px; }
     #google-login-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
-    .login-divider {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin: 14px 0;
-      color: #94a3b8;
-      font-size: 12px;
-    }
-    .login-divider::before, .login-divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: #e2e8f0;
-    }
-    #login-error {
-      color: #dc2626;
-      font-size: 13px;
-      margin-top: 10px;
-      min-height: 18px;
-      text-align: center;
-    }
-    #user-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #0f172a;
-      background: #e0f2fe;
-      border-radius: 20px;
-      padding: 4px 12px 4px 8px;
-    }
-    #user-badge img.avatar {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      object-fit: cover;
-    }
-    #logout-btn {
-      padding: 4px 10px;
-      font-size: 12px;
-      border-radius: 6px;
-      background: #fee2e2;
-      color: #dc2626;
-      border: none;
-      cursor: pointer;
-      font-family: inherit;
-      font-weight: 600;
-      transition: background .2s;
-    }
+    .login-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: #94a3b8; font-size: 12px; }
+    .login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+    #login-error { color: #dc2626; font-size: 13px; margin-top: 10px; min-height: 18px; text-align: center; }
+    #user-badge { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #0f172a; background: #e0f2fe; border-radius: 20px; padding: 4px 12px 4px 8px; }
+    #user-badge img.avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+    #logout-btn { padding: 4px 10px; font-size: 12px; border-radius: 6px; background: #fee2e2; color: #dc2626; border: none; cursor: pointer; font-family: inherit; font-weight: 600; transition: background .2s; }
     #logout-btn:hover { background: #fecaca; }
 
-    .date-nav {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      background: #e2e8f0;
-      border-radius: 10px;
-      padding: 4px 10px
-    }
-
-    .date-nav button {
-      border: none;
-      background: none;
-      cursor: pointer;
-      font-size: 16px;
-      padding: 2px 8px;
-      border-radius: 6px;
-      color: #475569;
-      transition: all 0.2s
-    }
-
-    .date-nav button:hover {
-      background: #cbd5e1;
-      color: #0f172a
-    }
-
-    #date-label {
-      font-size: 14px;
-      font-weight: 600;
-      min-width: 180px;
-      text-align: center;
-      color: #1e293b
-    }
-
-    .mode-toggle {
-      display: flex;
-      background: #e2e8f0;
-      border-radius: 10px;
-      padding: 4px
-    }
-
-    .mt-btn {
-      border: none;
-      background: none;
-      border-radius: 8px;
-      padding: 6px 14px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      font-family: inherit;
-      color: #475569;
-      transition: all 0.2s
-    }
-
-    .mt-btn.active {
-      background: #f4f6f8;
-      color: #0f172a;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, .1)
-    }
-
-    .tbr {
-      display: flex;
-      gap: 8px;
-      margin-left: auto;
-      flex-wrap: wrap
-    }
-
-    .btn {
-      border: none;
-      background: #f4f6f8;
-      color: #1e293b;
-      border-radius: 8px;
-      padding: 8px 16px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      font-family: inherit;
-      white-space: nowrap;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-      border: 1px solid #cbd5e1;
-      transition: all 0.2s
-    }
-
-    .btn:hover {
-      background: #e2e8f0;
-      transform: translateY(-1px);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05)
-    }
-
-    .btn:active {
-      transform: translateY(0)
-    }
-
-    .btn:disabled {
-      opacity: .5;
-      cursor: not-allowed;
-      transform: none
-    }
-
-    .btn-blue {
-      background: #2563eb;
-      color: #fff;
-      border-color: #2563eb;
-      box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2)
-    }
-
-    .btn-blue:hover {
-      background: #1d4ed8
-    }
-
-    .btn-green {
-      background: #10b981;
-      color: #fff;
-      border-color: #10b981;
-      box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2)
-    }
-
-    .btn-green:hover {
-      background: #059669
-    }
-
-    .btn-black {
-      background: #0f172a;
-      color: #fff;
-      border-color: #0f172a;
-      box-shadow: 0 2px 4px rgba(15, 23, 42, 0.2)
-    }
-
-    .btn-black:hover {
-      background: #1e293b
-    }
-
-    .btn-orange {
-      background: #ea580c;
-      color: #fff;
-      border-color: #ea580c;
-      box-shadow: 0 2px 4px rgba(234, 88, 12, 0.2)
-    }
-
-    .btn-orange:hover {
-      background: #c2410c
-    }
-
-    .btn-red {
-      background: #dc2626;
-      color: #fff;
-      border-color: #dc2626;
-      box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2)
-    }
-
-    .btn-red:hover {
-      background: #b91c1c
-    }
+    .date-nav { display: flex; align-items: center; gap: 4px; background: #e2e8f0; border-radius: 10px; padding: 4px 10px }
+    .date-nav button { border: none; background: none; cursor: pointer; font-size: 16px; padding: 2px 8px; border-radius: 6px; color: #475569; transition: all 0.2s }
+    .date-nav button:hover { background: #cbd5e1; color: #0f172a }
+    #date-label { font-size: 14px; font-weight: 600; min-width: 180px; text-align: center; color: #1e293b }
+    .mode-toggle { display: flex; background: #e2e8f0; border-radius: 10px; padding: 4px }
+    .mt-btn { border: none; background: none; border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; color: #475569; transition: all 0.2s }
+    .mt-btn.active { background: #f4f6f8; color: #0f172a; box-shadow: 0 1px 3px rgba(0, 0, 0, .1) }
+    .tbr { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap }
+    .btn { border: none; background: #f4f6f8; color: #1e293b; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; white-space: nowrap; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); border: 1px solid #cbd5e1; transition: all 0.2s }
+    .btn:hover { background: #e2e8f0; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) }
+    .btn:active { transform: translateY(0) }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none }
+    .btn-blue { background: #2563eb; color: #fff; border-color: #2563eb; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2) }
+    .btn-blue:hover { background: #1d4ed8 }
+    .btn-green { background: #10b981; color: #fff; border-color: #10b981; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2) }
+    .btn-green:hover { background: #059669 }
+    .btn-black { background: #0f172a; color: #fff; border-color: #0f172a; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.2) }
+    .btn-black:hover { background: #1e293b }
+    .btn-orange { background: #ea580c; color: #fff; border-color: #ea580c; box-shadow: 0 2px 4px rgba(234, 88, 12, 0.2) }
+    .btn-orange:hover { background: #c2410c }
+    .btn-red { background: #dc2626; color: #fff; border-color: #dc2626; box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2) }
+    .btn-red:hover { background: #b91c1c }
 
     /* Tabs */
-    .tabs {
-      display: flex;
-      background: #f4f6f8;
-      flex-shrink: 0;
-      padding: 0 20px;
-      border-bottom: 1px solid #cbd5e1
-    }
-
-    .tab {
-      padding: 12px 16px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      border-bottom: 2px solid transparent;
-      color: #64748b;
-      white-space: nowrap;
-      transition: all 0.2s
-    }
-
-    .tab:hover {
-      color: #0f172a
-    }
-
-    .tab.active {
-      color: #1d4ed8;
-      border-bottom-color: #1d4ed8
-    }
+    .tabs { display: flex; background: #f4f6f8; flex-shrink: 0; padding: 0 20px; border-bottom: 1px solid #cbd5e1 }
+    .tab { padding: 12px 16px; cursor: pointer; font-size: 14px; font-weight: 600; border-bottom: 2px solid transparent; color: #64748b; white-space: nowrap; transition: all 0.2s }
+    .tab:hover { color: #0f172a }
+    .tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8 }
 
     /* Summary bar */
-    .sum-bar {
-      display: flex;
-      gap: 8px;
-      padding: 12px 20px;
-      background: #f4f6f8;
-      border-bottom: 1px solid #cbd5e1;
-      flex-shrink: 0;
-      flex-wrap: wrap
-    }
-
-    .stat {
-      background: #e2e8f0;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
-      padding: 8px 14px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 64px;
-      box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5)
-    }
-
-    .stat-num {
-      font-size: 18px;
-      font-weight: 800;
-      line-height: 1
-    }
-
-    .stat-label {
-      font-size: 11px;
-      color: #334155;
-      margin-top: 4px;
-      white-space: nowrap;
-      font-weight: 600
-    }
+    .sum-bar { display: flex; gap: 8px; padding: 12px 20px; background: #f4f6f8; border-bottom: 1px solid #cbd5e1; flex-shrink: 0; flex-wrap: wrap }
+    .stat { background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 14px; display: flex; flex-direction: column; align-items: center; min-width: 64px; box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5) }
+    .stat-num { font-size: 18px; font-weight: 800; line-height: 1 }
+    .stat-label { font-size: 11px; color: #334155; margin-top: 4px; white-space: nowrap; font-weight: 600 }
 
     /* Colors */
-    .c-green {
-      color: #059669;
-      text-shadow: 0 0 1px rgba(5, 150, 105, 0.2)
-    }
-
-    .c-red {
-      color: #dc2626;
-      text-shadow: 0 0 1px rgba(220, 38, 38, 0.2)
-    }
-
-    .c-amber {
-      color: #d97706;
-      text-shadow: 0 0 1px rgba(217, 119, 6, 0.2)
-    }
-
-    .c-gray {
-      color: #475569
-    }
-
-    .c-blue {
-      color: #1d4ed8;
-      text-shadow: 0 0 1px rgba(29, 78, 216, 0.2)
-    }
+    .c-green { color: #059669; text-shadow: 0 0 1px rgba(5, 150, 105, 0.2) }
+    .c-red { color: #dc2626; text-shadow: 0 0 1px rgba(220, 38, 38, 0.2) }
+    .c-amber { color: #d97706; text-shadow: 0 0 1px rgba(217, 119, 6, 0.2) }
+    .c-gray { color: #475569 }
+    .c-blue { color: #1d4ed8; text-shadow: 0 0 1px rgba(29, 78, 216, 0.2) }
 
     /* Toolbar */
-    .toolbar {
-      display: flex;
-      gap: 10px;
-      padding: 12px 20px;
-      background: #f4f6f8;
-      border-bottom: 1px solid #cbd5e1;
-      flex-shrink: 0;
-      flex-wrap: wrap
-    }
-
-    .srch,
-    select.filt {
-      border: 1px solid #94a3b8;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 13px;
-      font-family: inherit;
-      background: #ffffff;
-      color: #1e293b;
-      transition: all 0.2s
-    }
-
-    .srch {
-      flex: 1;
-      min-width: 150px
-    }
-
-    .srch:focus,
-    select.filt:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #ffffff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    select.filt {
-      cursor: pointer
-    }
+    .toolbar { display: flex; gap: 10px; padding: 12px 20px; background: #f4f6f8; border-bottom: 1px solid #cbd5e1; flex-shrink: 0; flex-wrap: wrap }
+    .srch, select.filt { border: 1px solid #94a3b8; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; background: #ffffff; color: #1e293b; transition: all 0.2s }
+    .srch { flex: 1; min-width: 150px }
+    .srch:focus, select.filt:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    select.filt { cursor: pointer }
 
     /* Legend */
-    .legend {
-      display: flex;
-      gap: 6px;
-      padding: 8px 20px;
-      background: #f4f6f8;
-      border-bottom: 1px solid #cbd5e1;
-      flex-shrink: 0;
-      flex-wrap: wrap;
-      align-items: center
-    }
-
-    .lgt {
-      font-size: 12px;
-      font-weight: 700;
-      color: #334155
-    }
-
-    .lc {
-      font-size: 11px;
-      background: #f1f5f9;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      padding: 3px 8px;
-      color: #1e293b;
-      font-weight: 600;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02)
-    }
+    .legend { display: flex; gap: 6px; padding: 8px 20px; background: #f4f6f8; border-bottom: 1px solid #cbd5e1; flex-shrink: 0; flex-wrap: wrap; align-items: center }
+    .lgt { font-size: 12px; font-weight: 700; color: #334155 }
+    .lc { font-size: 11px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 8px; color: #1e293b; font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) }
 
     /* Table */
-    .tbl-wrap {
-      flex: 1;
-      overflow: auto;
-      background: #f4f6f8
-    }
-
-    table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 13px
-    }
-
-    thead th {
-      background: #e2e8f0;
-      font-weight: 700;
-      color: #0f172a;
-      padding: 12px 16px;
-      text-align: left;
-      position: sticky;
-      top: 0;
-      z-index: 3;
-      white-space: nowrap;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px
-    }
-
-    thead th::after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: #cbd5e1
-    }
-
-    tbody tr {
-      transition: background 0.1s
-    }
-
-    tbody tr:hover td {
-      background: #fee2e2
-    }
-
-    tbody td {
-      padding: 8px 16px;
-      border-bottom: 1px solid #e2e8f0;
-      vertical-align: middle
-    }
-
-    .nick {
-      font-weight: 700;
-      color: #0f172a;
-      font-size: 13px
-    }
-
-    .pos {
-      font-size: 11px;
-      color: #475569;
-      display: block;
-      margin-top: 2px
-    }
+    .tbl-wrap { flex: 1; overflow: auto; background: #f4f6f8 }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px }
+    thead th { background: #e2e8f0; font-weight: 700; color: #0f172a; padding: 12px 16px; text-align: left; position: sticky; top: 0; z-index: 3; white-space: nowrap; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px }
+    thead th::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: #cbd5e1 }
+    tbody tr { transition: background 0.1s }
+    tbody tr:hover td { background: #fee2e2 }
+    tbody td { padding: 8px 16px; border-bottom: 1px solid #e2e8f0; vertical-align: middle }
+    .nick { font-weight: 700; color: #0f172a; font-size: 13px }
+    .pos { font-size: 11px; color: #475569; display: block; margin-top: 2px }
 
     /* Code inputs */
-    .ci {
-      width: 56px;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      padding: 6px;
-      text-align: center;
-      font-size: 14px;
-      font-weight: 700;
-      font-family: inherit;
-      background: #ffffff;
-      cursor: text;
-      transition: all 0.2s
-    }
-
-    .ci:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #eff6ff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    .ci.v1 {
-      background: #d1fae5;
-      border-color: #10b981;
-      color: #047857
-    }
-
-    .ci.vw {
-      background: #e2e8f0;
-      border-color: #94a3b8;
-      color: #334155
-    }
-
-    .ci.vh {
-      background: #fef08a;
-      border-color: #eab308;
-      color: #854d0e
-    }
-
-    .ci.vp {
-      background: #fee2e2;
-      border-color: #ef4444;
-      color: #b91c1c
-    }
-
-    .ci.vr {
-      background: #f3e8ff;
-      border-color: #a855f7;
-      color: #7e22ce
-    }
-
-    .ci.vk {
-      background: #dbeafe;
-      border-color: #3b82f6;
-      color: #1d4ed8
-    }
-
-    .ci.vph {
-      background: #fef3c7;
-      border-color: #f59e0b;
-      color: #b45309
-    }
-
-    .ci.vs {
-      background: #ffedd5;
-      border-color: #f97316;
-      color: #c2410c
-    }
-
-    .ci.vf {
-      background: #ccfbf1;
-      border-color: #14b8a6;
-      color: #0f766e
-    }
-
-    .ci.vx {
-      background: #fecaca;
-      border-color: #dc2626;
-      color: #991b1b
-    }
-
-    .ci.vb {
-      background: #fce7f3;
-      border-color: #ec4899;
-      color: #be185d
-    }
-
-    .ni {
-      width: 100%;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      padding: 6px 10px;
-      font-size: 13px;
-      font-family: inherit;
-      background: transparent;
-      color: #1e293b;
-      transition: all 0.2s
-    }
-
-    .ni:hover {
-      background: #e2e8f0
-    }
-
-    .ni:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #ffffff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    .ni::placeholder {
-      color: #64748b
-    }
-
-    .shift-cell {
-      font-size: 12px;
-      color: #475569;
-      white-space: nowrap
-    }
+    .ci { width: 56px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; text-align: center; font-size: 14px; font-weight: 700; font-family: inherit; background: #ffffff; cursor: text; transition: all 0.2s }
+    .ci:focus { outline: none; border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    .ci.v1 { background: #d1fae5; border-color: #10b981; color: #047857 }
+    .ci.vw { background: #e2e8f0; border-color: #94a3b8; color: #334155 }
+    .ci.vh { background: #fef08a; border-color: #eab308; color: #854d0e }
+    .ci.vp { background: #fee2e2; border-color: #ef4444; color: #b91c1c }
+    .ci.vr { background: #f3e8ff; border-color: #a855f7; color: #7e22ce }
+    .ci.vk { background: #dbeafe; border-color: #3b82f6; color: #1d4ed8 }
+    .ci.vph { background: #fef3c7; border-color: #f59e0b; color: #b45309 }
+    .ci.vs { background: #ffedd5; border-color: #f97316; color: #c2410c }
+    .ci.vf { background: #ccfbf1; border-color: #14b8a6; color: #0f766e }
+    .ci.vx { background: #fecaca; border-color: #dc2626; color: #991b1b }
+    .ci.vb { background: #fce7f3; border-color: #ec4899; color: #be185d }
+    .ni { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit; background: transparent; color: #1e293b; transition: all 0.2s }
+    .ni:hover { background: #e2e8f0 }
+    .ni:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    .ni::placeholder { color: #64748b }
+    .shift-cell { font-size: 12px; color: #475569; white-space: nowrap }
 
     /* Quick mode */
-    .qwrap {
-      flex: 1;
-      overflow: auto;
-      display: flex;
-      justify-content: center;
-      padding: 32px 20px;
-      background: #cbd5e1
-    }
-
-    .qbox {
-      background: #f4f6f8;
-      border: 1px solid #94a3b8;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-      border-radius: 16px;
-      padding: 24px;
-      width: 100%;
-      max-width: 500px;
-      height: fit-content
-    }
-
-    .qsearch {
-      width: 100%;
-      border: 1px solid #94a3b8;
-      border-radius: 10px;
-      padding: 12px 16px;
-      font-size: 15px;
-      font-family: inherit;
-      background: #ffffff;
-      transition: all 0.2s
-    }
-
-    .qsearch:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #ffffff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    .qdrop {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
-      margin-top: 8px;
-      z-index: 20;
-      max-height: 250px;
-      overflow-y: auto;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1)
-    }
-
-    .qdi {
-      padding: 12px 16px;
-      cursor: pointer;
-      border-bottom: 1px solid #e2e8f0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      transition: background 0.1s
-    }
-
-    .qdi:hover {
-      background: #e2e8f0
-    }
-
-    .code-grid {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 8px;
-      margin-bottom: 16px
-    }
-
-    .cgb {
-      border: 1px solid #cbd5e1;
-      background: #ffffff;
-      border-radius: 10px;
-      padding: 10px 4px;
-      cursor: pointer;
-      text-align: center;
-      font-size: 14px;
-      font-weight: 700;
-      font-family: inherit;
-      color: #1e293b;
-      transition: all 0.2s;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02)
-    }
-
-    .cgb:hover {
-      border-color: #3b82f6;
-      background: #eff6ff;
-      color: #1d4ed8
-    }
-
-    .cgb.sel {
-      background: #2563eb;
-      color: #ffffff;
-      border-color: #2563eb;
-      box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2)
-    }
-
-    .cgb-sub {
-      font-size: 10px;
-      font-weight: 600;
-      display: block;
-      margin-top: 4px;
-      opacity: .9
-    }
-
-    .qnote {
-      width: 100%;
-      border: 1px solid #94a3b8;
-      border-radius: 10px;
-      padding: 12px 16px;
-      font-size: 14px;
-      font-family: inherit;
-      margin-bottom: 16px;
-      resize: none;
-      height: 80px;
-      background: #ffffff;
-      transition: all 0.2s
-    }
-
-    .qnote:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #ffffff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    .qsave {
-      width: 100%;
-      padding: 14px;
-      font-size: 15px;
-      font-weight: 700;
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      font-family: inherit;
-      box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
-      transition: all 0.2s
-    }
-
-    .qsave:hover {
-      background: #1d4ed8;
-      transform: translateY(-1px)
-    }
+    .qwrap { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 32px 20px; background: #cbd5e1 }
+    .qbox { background: #f4f6f8; border: 1px solid #94a3b8; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); border-radius: 16px; padding: 24px; width: 100%; max-width: 500px; height: fit-content }
+    .qsearch { width: 100%; border: 1px solid #94a3b8; border-radius: 10px; padding: 12px 16px; font-size: 15px; font-family: inherit; background: #ffffff; transition: all 0.2s }
+    .qsearch:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    .qdrop { position: absolute; top: 100%; left: 0; right: 0; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; margin-top: 8px; z-index: 20; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) }
+    .qdi { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 12px; transition: background 0.1s }
+    .qdi:hover { background: #e2e8f0 }
+    .code-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px }
+    .cgb { border: 1px solid #cbd5e1; background: #ffffff; border-radius: 10px; padding: 10px 4px; cursor: pointer; text-align: center; font-size: 14px; font-weight: 700; font-family: inherit; color: #1e293b; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) }
+    .cgb:hover { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8 }
+    .cgb.sel { background: #2563eb; color: #ffffff; border-color: #2563eb; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) }
+    .cgb-sub { font-size: 10px; font-weight: 600; display: block; margin-top: 4px; opacity: .9 }
+    .qnote { width: 100%; border: 1px solid #94a3b8; border-radius: 10px; padding: 12px 16px; font-size: 14px; font-family: inherit; margin-bottom: 16px; resize: none; height: 80px; background: #ffffff; transition: all 0.2s }
+    .qnote:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    .qsave { width: 100%; padding: 14px; font-size: 15px; font-weight: 700; background: #2563eb; color: #fff; border: none; border-radius: 10px; cursor: pointer; font-family: inherit; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); transition: all 0.2s }
+    .qsave:hover { background: #1d4ed8; transform: translateY(-1px) }
 
     /* Cards (Summary/Emp) */
-    .panel {
-      flex: 1;
-      overflow: auto;
-      padding: 20px;
-      background: #cbd5e1
-    }
-
-    .card {
-      background: #f4f6f8;
-      border: 1px solid #94a3b8;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-      border-radius: 16px;
-      overflow: hidden;
-      margin-bottom: 16px
-    }
-
-    .card-head {
-      padding: 14px 20px;
-      border-bottom: 1px solid #cbd5e1;
-      font-weight: 700;
-      font-size: 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: #0f172a
-    }
-
-    .day-cards {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding: 16px 20px
-    }
-
-    .day-card {
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 12px;
-      padding: 10px 14px;
-      min-width: 85px;
-      text-align: center;
-      cursor: pointer;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
-      transition: all 0.2s
-    }
-
-    .day-card:hover {
-      border-color: #64748b;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1)
-    }
-
-    .day-card.today {
-      background: #eff6ff;
-      border-color: #3b82f6;
-      box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1)
-    }
-
-    .day-card.nodata {
-      opacity: .6;
-      cursor: default
-    }
-
-    .day-card.nodata:hover {
-      transform: none;
-      box-shadow: none;
-      border-color: #cbd5e1
-    }
+    .panel { flex: 1; overflow: auto; padding: 20px; background: #cbd5e1 }
+    .card { background: #f4f6f8; border: 1px solid #94a3b8; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border-radius: 16px; overflow: hidden; margin-bottom: 16px }
+    .card-head { padding: 14px 20px; border-bottom: 1px solid #cbd5e1; font-weight: 700; font-size: 14px; display: flex; justify-content: space-between; align-items: center; color: #0f172a }
+    .day-cards { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 20px }
+    .day-card { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 14px; min-width: 85px; text-align: center; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02); transition: all 0.2s }
+    .day-card:hover { border-color: #64748b; transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) }
+    .day-card.today { background: #eff6ff; border-color: #3b82f6; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) }
+    .day-card.nodata { opacity: .6; cursor: default }
+    .day-card.nodata:hover { transform: none; box-shadow: none; border-color: #cbd5e1 }
 
     /* Emp tab grid */
-    .mv-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0
-    }
-
-    .mv-col {
-      padding: 16px 20px
-    }
-
-    .mv-col:first-child {
-      border-right: 1px solid #cbd5e1
-    }
-
-    .mv-label {
-      font-size: 13px;
-      font-weight: 700;
-      margin-bottom: 12px
-    }
-
-    .mv-row {
-      padding: 8px 0;
-      border-bottom: 1px dashed #94a3b8;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px
-    }
-
-    .mv-row:last-child {
-      border-bottom: none
-    }
+    .mv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 }
+    .mv-col { padding: 16px 20px }
+    .mv-col:first-child { border-right: 1px solid #cbd5e1 }
+    .mv-label { font-size: 13px; font-weight: 700; margin-bottom: 12px }
+    .mv-row { padding: 8px 0; border-bottom: 1px dashed #94a3b8; display: flex; justify-content: space-between; align-items: center; font-size: 13px }
+    .mv-row:last-child { border-bottom: none }
 
     /* Modal */
-    .modal-bg {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.4);
-      backdrop-filter: blur(2px);
-      z-index: 200;
-      align-items: center;
-      justify-content: center
-    }
-
-    .modal-bg.open {
-      display: flex
-    }
-
-    .modal {
-      background: #ffffff;
-      border-radius: 20px;
-      padding: 28px;
-      width: 400px;
-      max-width: 95vw;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)
-    }
-
-    .modal h3 {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 20px;
-      color: #0f172a
-    }
-
-    .mf {
-      margin-bottom: 14px
-    }
-
-    .mf label {
-      font-size: 12px;
-      font-weight: 500;
-      color: #475569;
-      display: block;
-      margin-bottom: 6px
-    }
-
-    .mf input,
-    .mf select,
-    .mf textarea {
-      width: 100%;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 14px;
-      font-family: inherit;
-      background: #f8f9fc;
-      transition: all 0.2s
-    }
-
-    .mf input:focus,
-    .mf select:focus,
-    .mf textarea:focus {
-      outline: none;
-      border-color: #2563eb;
-      background: #ffffff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
-    }
-
-    .mac {
-      display: flex;
-      gap: 12px;
-      margin-top: 24px
-    }
-
-    .mac .btn {
-      flex: 1;
-      padding: 10px;
-      font-size: 14px
-    }
-
-    .empty {
-      text-align: center;
-      padding: 40px;
-      color: #94a3b8;
-      font-size: 14px
-    }
+    .modal-bg { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(2px); z-index: 200; align-items: center; justify-content: center }
+    .modal-bg.open { display: flex }
+    .modal { background: #ffffff; border-radius: 20px; padding: 28px; width: 400px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) }
+    .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 20px; color: #0f172a }
+    .mf { margin-bottom: 14px }
+    .mf label { font-size: 12px; font-weight: 500; color: #475569; display: block; margin-bottom: 6px }
+    .mf input, .mf select, .mf textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; background: #f8f9fc; transition: all 0.2s }
+    .mf input:focus, .mf select:focus, .mf textarea:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) }
+    .mac { display: flex; gap: 12px; margin-top: 24px }
+    .mac .btn { flex: 1; padding: 10px; font-size: 14px }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; font-size: 14px }
 
     /* Sync Bar */
-    #sync-bar {
-      background: #f0fdf4;
-      border-bottom: 1px solid #bbf7d0;
-      color: #166534
-    }
+    #sync-bar { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; color: #166534 }
 
     /* Dark Mode */
-    body.dark-mode {
-      background: #111111;
-      color: #e2e8f0;
-      color-scheme: dark;
-    }
-
-    body.dark-mode .topbar,
-    body.dark-mode .tabs,
-    body.dark-mode .sum-bar,
-    body.dark-mode .toolbar,
-    body.dark-mode .legend,
-    body.dark-mode .tbl-wrap,
-    body.dark-mode .qbox,
-    body.dark-mode .card,
-    body.dark-mode .modal,
-    body.dark-mode .qdrop,
-    body.dark-mode #sync-bar {
-      background: #1e1e1e;
-      border-color: #333;
-      color: #e2e8f0;
-    }
-
-    body.dark-mode .app-title,
-    body.dark-mode #date-label,
-    body.dark-mode .nick,
-    body.dark-mode h3,
-    body.dark-mode .card-head,
-    body.dark-mode .stat-num {
-      color: #f8f9fc;
-    }
-
-    body.dark-mode .date-nav,
-    body.dark-mode .mode-toggle,
-    body.dark-mode .stat,
-    body.dark-mode .panel,
-    body.dark-mode .qwrap {
-      background: #111111;
-      border-color: #333;
-    }
-
-    body.dark-mode .srch,
-    body.dark-mode select.filt,
-    body.dark-mode .qsearch,
-    body.dark-mode .qnote,
-    body.dark-mode .mf input,
-    body.dark-mode .mf select,
-    body.dark-mode .mf textarea,
-    body.dark-mode .ci,
-    body.dark-mode .ni {
-      background: #2d2d2d !important;
-      border-color: #444 !important;
-      color: #e2e8f0 !important;
-    }
-
-    body.dark-mode option {
-      background: #2d2d2d;
-      color: #e2e8f0;
-    }
-
-    body.dark-mode td[style*="color:#0f172a"],
-    body.dark-mode span[style*="color:#0f172a"],
-    body.dark-mode td[style*="color:#475569"],
-    body.dark-mode span[style*="color:#475569"],
-    body.dark-mode td[style*="color:#64748b"],
-    body.dark-mode span[style*="color:#64748b"],
-    body.dark-mode div[style*="color:#334155"] {
-      color: #f8f9fc !important;
-    }
-
-    body.dark-mode td[style*="color:#2563eb"],
-    body.dark-mode span[style*="color:#2563eb"] {
-      color: #60a5fa !important;
-    }
-
-    body.dark-mode .btn:not(.btn-blue):not(.btn-green):not(.btn-red):not(.btn-orange):not(.btn-black) {
-      background: #2d2d2d;
-      color: #e2e8f0;
-      border-color: #444;
-    }
-
-    body.dark-mode .btn:not(.btn-blue):not(.btn-green):not(.btn-red):not(.btn-orange):not(.btn-black):hover {
-      background: #3d3d3d;
-    }
-
-    body.dark-mode thead th {
-      background: #222;
-      color: #cbd5e1;
-    }
-
-    body.dark-mode thead th::after,
-    body.dark-mode tbody td,
-    body.dark-mode .tabs,
-    body.dark-mode .sum-bar,
-    body.dark-mode .toolbar,
-    body.dark-mode .legend,
-    body.dark-mode .card-head {
-      border-color: #333;
-    }
-
-    body.dark-mode tbody tr:hover td,
-    body.dark-mode .qdi:hover,
-    body.dark-mode .ni:hover {
-      background: #333;
-    }
-
-    body.dark-mode .day-card,
-    body.dark-mode .cgb {
-      background: #2d2d2d;
-      border-color: #444;
-      color: #e2e8f0;
-    }
-
-    body.dark-mode .day-card.today {
-      background: #1e293b;
-      border-color: #3b82f6;
-    }
-
-    body.dark-mode .ci.v1,
-    body.dark-mode .ci.vw,
-    body.dark-mode .ci.vh,
-    body.dark-mode .ci.vp,
-    body.dark-mode .ci.vr,
-    body.dark-mode .ci.vk,
-    body.dark-mode .ci.vph,
-    body.dark-mode .ci.vs,
-    body.dark-mode .ci.vf,
-    body.dark-mode .ci.vx,
-    body.dark-mode .ci.vb {
-      filter: contrast(1.1) brightness(0.9);
-    }
-
-    body.dark-mode .mt-btn.active {
-      background: #2d2d2d;
-      color: #e2e8f0;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
-    }
-
-    body.dark-mode .tab.active {
-      color: #3b82f6;
-      border-bottom-color: #3b82f6;
-    }
-
-    body.dark-mode .lc {
-      background: #2d2d2d;
-      color: #cbd5e1;
-      border-color: #444;
-    }
+    body.dark-mode { background: #111111; color: #e2e8f0; color-scheme: dark; }
+    body.dark-mode .topbar, body.dark-mode .tabs, body.dark-mode .sum-bar, body.dark-mode .toolbar, body.dark-mode .legend, body.dark-mode .tbl-wrap, body.dark-mode .qbox, body.dark-mode .card, body.dark-mode .modal, body.dark-mode .qdrop, body.dark-mode #sync-bar { background: #1e1e1e; border-color: #333; color: #e2e8f0; }
+    body.dark-mode .app-title, body.dark-mode #date-label, body.dark-mode .nick, body.dark-mode h3, body.dark-mode .card-head, body.dark-mode .stat-num { color: #f8f9fc; }
+    body.dark-mode .date-nav, body.dark-mode .mode-toggle, body.dark-mode .stat, body.dark-mode .panel, body.dark-mode .qwrap { background: #111111; border-color: #333; }
+    body.dark-mode .srch, body.dark-mode select.filt, body.dark-mode .qsearch, body.dark-mode .qnote, body.dark-mode .mf input, body.dark-mode .mf select, body.dark-mode .mf textarea, body.dark-mode .ci, body.dark-mode .ni { background: #2d2d2d !important; border-color: #444 !important; color: #e2e8f0 !important; }
+    body.dark-mode option { background: #2d2d2d; color: #e2e8f0; }
+    body.dark-mode td[style*="color:#0f172a"], body.dark-mode span[style*="color:#0f172a"], body.dark-mode td[style*="color:#475569"], body.dark-mode span[style*="color:#475569"], body.dark-mode td[style*="color:#64748b"], body.dark-mode span[style*="color:#64748b"], body.dark-mode div[style*="color:#334155"] { color: #f8f9fc !important; }
+    body.dark-mode td[style*="color:#2563eb"], body.dark-mode span[style*="color:#2563eb"] { color: #60a5fa !important; }
+    body.dark-mode .btn:not(.btn-blue):not(.btn-green):not(.btn-red):not(.btn-orange):not(.btn-black) { background: #2d2d2d; color: #e2e8f0; border-color: #444; }
+    body.dark-mode .btn:not(.btn-blue):not(.btn-green):not(.btn-red):not(.btn-orange):not(.btn-black):hover { background: #3d3d3d; }
+    body.dark-mode thead th { background: #222; color: #cbd5e1; }
+    body.dark-mode thead th::after, body.dark-mode tbody td, body.dark-mode .tabs, body.dark-mode .sum-bar, body.dark-mode .toolbar, body.dark-mode .legend, body.dark-mode .card-head { border-color: #333; }
+    body.dark-mode tbody tr:hover td, body.dark-mode .qdi:hover, body.dark-mode .ni:hover { background: #333; }
+    body.dark-mode .day-card, body.dark-mode .cgb { background: #2d2d2d; border-color: #444; color: #e2e8f0; }
+    body.dark-mode .day-card.today { background: #1e293b; border-color: #3b82f6; }
+    body.dark-mode .ci.v1, body.dark-mode .ci.vw, body.dark-mode .ci.vh, body.dark-mode .ci.vp, body.dark-mode .ci.vr, body.dark-mode .ci.vk, body.dark-mode .ci.vph, body.dark-mode .ci.vs, body.dark-mode .ci.vf, body.dark-mode .ci.vx, body.dark-mode .ci.vb { filter: contrast(1.1) brightness(0.9); }
+    body.dark-mode .mt-btn.active { background: #2d2d2d; color: #e2e8f0; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+    body.dark-mode .tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+    body.dark-mode .lc { background: #2d2d2d; color: #cbd5e1; border-color: #444; }
   </style>
 </head>
 
@@ -1382,41 +461,24 @@
       <button class="mt-btn active" id="mt-table" onclick="setMode('table')">แบบตาราง</button>
       <button class="mt-btn" id="mt-quick" onclick="setMode('quick')">แบบด่วน</button>
     </div>
-    <button class="btn" onclick="toggleDarkMode()" style="padding:6px 10px;font-size:14px;border-radius:8px"
-      title="สลับโหมดกลางคืน">🌙</button>
-    <!-- Google Sheets Sync URL -->
-    <div id="sync-bar"
-      style="display:none;padding:8px 20px;font-size:13px;flex-shrink:0;align-items:center;gap:10px;width:100%">
-      <span style="font-weight:600">&#x2601; Sync System:</span>
-      <input id="gs-url" type="text" placeholder="วาง Google Apps Script URL ที่นี่..."
-        style="flex:1;border:1px solid #86efac;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit;background:#ffffff">
-      <button class="btn btn-green" onclick="saveGsUrl()" style="padding:6px 12px;font-size:12px">บันทึก URL</button>
-      <button class="btn btn-blue" onclick="syncFromSheets()" id="sync-down-btn"
-        style="padding:6px 12px;font-size:12px">&#x2193; ดึงข้อมูล</button>
-      <button class="btn btn-orange" onclick="syncToSheets()" id="sync-up-btn"
-        style="padding:6px 12px;font-size:12px">&#x2191; บันทึกขึ้น</button>
-      <span id="sync-status" style="color:#047857;font-size:12px;font-weight:500"></span>
-    </div>
+    <button class="btn" onclick="toggleDarkMode()" style="padding:6px 10px;font-size:14px;border-radius:8px" title="สลับโหมดกลางคืน">🌙</button>
+    
     <div class="tbr">
+      <button class="btn" onclick="migrateLocalToSupabase()" style="background:#06b6d4;color:#fff;border-color:#06b6d4;box-shadow:0 2px 4px rgba(6,182,212,0.3)" title="Push ข้อมูลจากเครื่องนี้ขึ้น Cloud เพื่อให้เครื่องอื่นเห็น">⬆️ Push ขึ้น Cloud</button>
+      <button class="btn" onclick="forceReloadFromCloud()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;box-shadow:0 2px 4px rgba(139,92,246,0.3)" title="ดึงข้อมูลล่าสุดจาก Cloud">⬇️ ดึงจาก Cloud</button>
       <button class="btn btn-orange" onclick="pickDateThenImport()">&#x2191; ดึง HR Cloud</button>
       <input type="file" id="hrc-file" accept=".xlsx,.xls" style="display:none" onchange="importHRCloud(this)">
       <div id="hrc-date-modal" class="modal-bg">
         <div class="modal" style="width:320px">
           <h3>นำเข้าจาก HR Cloud</h3>
           <div style="font-size:13px;color:#64748b;margin-bottom:16px">เลือกวันที่ของไฟล์ที่จะนำเข้า</div>
-          <input type="date" id="hrc-date-pick"
-            style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:14px;font-family:inherit;margin-bottom:20px;background:#f8f9fc">
+          <input type="date" id="hrc-date-pick" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:14px;font-family:inherit;margin-bottom:20px;background:#f8f9fc">
           <div class="mac" style="margin-top:0">
-            <button class="btn" onclick="document.getElementById('hrc-date-modal').style.display='none'">ยกเลิก</button>
+            <button class="btn" onclick="document.getElementById('hrc-date-modal').classList.remove('open')">ยกเลิก</button>
             <button class="btn btn-orange" onclick="confirmHrcDate()">เลือกไฟล์</button>
           </div>
         </div>
       </div>
-      <button class="btn btn-red" onclick="clearDay()"
-        style="background:#fff;color:#ef4444;border-color:#fca5a5">&#x1F5D1; ล้าง</button>
-      <button class="btn" onclick="exportLate()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6">&#x23F0;
-        สรุปสาย</button>
-      <button class="btn btn-green" onclick="toggleSyncBar()">&#x2601; Sync</button>
       <button class="btn btn-black" id="rpt-btn" onclick="generateReport()">สร้างรายงาน Word</button>
     </div>
   </div>
@@ -1435,11 +497,8 @@
     <!-- TABLE MODE -->
     <div id="mode-table" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
       <div class="toolbar">
-        <input class="srch" id="srch" type="text" placeholder="🔍 ค้นหาชื่อหรือชื่อเล่นพนักงาน..."
-          oninput="renderTable()">
-        <select class="filt" id="pf" onchange="renderTable()">
-          <option value="">ทุกแผนก</option>
-        </select>
+        <input class="srch" id="srch" type="text" placeholder="🔍 ค้นหาชื่อหรือชื่อเล่นพนักงาน..." oninput="renderTable()">
+        <select class="filt" id="pf" onchange="renderTable()"><option value="">ทุกแผนก</option></select>
         <select class="filt" id="sf" onchange="renderTable()">
           <option value="">ทุกสถานะ</option>
           <option value="__empty__">⚠️ ยังไม่กรอก</option>
@@ -1484,19 +543,16 @@
       <div class="qwrap">
         <div class="qbox">
           <div style="position:relative;margin-bottom:20px">
-            <input class="qsearch" id="qs" type="text" placeholder="🔍 ค้นชื่อเล่นหรือชื่อพนักงาน..."
-              oninput="qSearch()" autocomplete="off">
+            <input class="qsearch" id="qs" type="text" placeholder="🔍 ค้นชื่อเล่นหรือชื่อพนักงาน..." oninput="qSearch()" autocomplete="off">
             <div class="qdrop" id="qdrop" style="display:none"></div>
           </div>
           <div id="qform" style="display:none">
-            <div
-              style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #f1f5f9">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #f1f5f9">
               <div>
                 <div style="font-size:18px;font-weight:700;color:#0f172a" id="qf-name"></div>
                 <div style="font-size:13px;color:#64748b;margin-top:4px" id="qf-sub"></div>
               </div>
-              <button onclick="clearQuick()"
-                style="border:none;background:#f1f5f9;border-radius:50%;width:28px;height:28px;cursor:pointer;color:#64748b;font-size:14px;display:flex;align-items:center;justify-content:center">&#x2715;</button>
+              <button onclick="clearQuick()" style="border:none;background:#f1f5f9;border-radius:50%;width:28px;height:28px;cursor:pointer;color:#64748b;font-size:14px;display:flex;align-items:center;justify-content:center">&#x2715;</button>
             </div>
             <div class="code-grid" id="qgrid"></div>
             <textarea class="qnote" id="qnote" placeholder="กรอกหมายเหตุเพิ่มเติม (ถ้ามี)..."></textarea>
@@ -1516,20 +572,16 @@
   <div id="view-summary" style="display:none;flex:1;overflow:auto;min-height:0">
     <div class="panel">
       <div class="toolbar" style="padding:0;margin-bottom:16px;background:transparent;border:none;gap:12px">
-        <select class="filt" id="sum-period" onchange="renderSummary()"
-          style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
+        <select class="filt" id="sum-period" onchange="renderSummary()" style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
           <option value="week">สัปดาห์นี้</option>
           <option value="month">เดือนนี้</option>
           <option value="all">ทั้งหมด</option>
         </select>
-        <select class="filt" id="sum-pf" onchange="renderSummary()"
-          style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
+        <select class="filt" id="sum-pf" onchange="renderSummary()" style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
           <option value="">ทุกแผนก</option>
         </select>
-        <input class="srch" id="sum-srch" type="text" placeholder="🔍 ค้นหาชื่อ..." oninput="renderSummary()"
-          style="max-width:200px;background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
-        <select class="filt" id="sum-sort" onchange="renderSummary()"
-          style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
+        <input class="srch" id="sum-srch" type="text" placeholder="🔍 ค้นหาชื่อ..." oninput="renderSummary()" style="max-width:200px;background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
+        <select class="filt" id="sum-sort" onchange="renderSummary()" style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
           <option value="name">เรียงตามชื่อ</option>
           <option value="late">เรียงตาม มาสาย &#x2193;</option>
           <option value="sick">เรียงตาม ลาป่วย &#x2193;</option>
@@ -1540,33 +592,26 @@
       </div>
       <!-- Daily breakdown -->
       <div class="card">
-        <div class="card-head">สรุปจำนวนคนรายวัน <span
-            style="font-size:12px;font-weight:400;color:#64748b">คลิกที่การ์ดเพื่อดูรายชื่อ</span></div>
+        <div class="card-head">สรุปจำนวนคนรายวัน <span style="font-size:12px;font-weight:400;color:#64748b">คลิกที่การ์ดเพื่อดูรายชื่อ</span></div>
         <div class="day-cards" id="day-cards"></div>
       </div>
       <!-- Per-employee -->
       <div class="card">
-        <div class="card-head">สถิติสะสมรายบุคคล <span
-            style="font-size:12px;font-weight:400;color:#64748b">คลิกที่รายชื่อเพื่อดูประวัติ</span></div>
+        <div class="card-head">สถิติสะสมรายบุคคล <span style="font-size:12px;font-weight:400;color:#64748b">คลิกที่รายชื่อเพื่อดูประวัติ</span></div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead>
               <tr style="background:#f8f9fc">
                 <th style="padding:12px 16px;border-bottom:1px solid #e2e8f0;color:#64748b">#</th>
                 <th style="padding:12px 16px;border-bottom:1px solid #e2e8f0;color:#64748b">พนักงาน</th>
-                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#10b981">มาทำงาน
-                </th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#10b981">มาทำงาน</th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#f59e0b">มาสาย</th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#d97706">นาทีสาย</th>
-                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#ef4444">ลาป่วย
-                </th>
-                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#3b82f6">พักร้อน
-                </th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#ef4444">ลาป่วย</th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#3b82f6">พักร้อน</th>
                 <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#8b5cf6">ลากิจ</th>
-                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#ef4444">ขาดงาน
-                </th>
-                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#94a3b8">ลืมสแกน
-                </th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#ef4444">ขาดงาน</th>
+                <th style="padding:12px 16px;text-align:center;border-bottom:1px solid #e2e8f0;color:#94a3b8">ลืมสแกน</th>
               </tr>
             </thead>
             <tbody id="sum-tbody"></tbody>
@@ -1585,15 +630,11 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px" id="dash-charts-row">
         <div class="card" style="padding:20px">
           <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">การเข้างานรายวัน (7 วันล่าสุด)</div>
-          <div style="position:relative;height:220px;width:100%">
-            <canvas id="chart-daily"></canvas>
-          </div>
+          <div style="position:relative;height:220px;width:100%"><canvas id="chart-daily"></canvas></div>
         </div>
         <div class="card" style="padding:20px">
           <div class="card-head" style="padding:0 0 12px 0;margin-bottom:12px">สัดส่วนสถานะเดือนนี้</div>
-          <div style="position:relative;height:220px;width:100%">
-            <canvas id="chart-status"></canvas>
-          </div>
+          <div style="position:relative;height:220px;width:100%"><canvas id="chart-status"></canvas></div>
         </div>
       </div>
       <!-- Bottom Row -->
@@ -1618,17 +659,11 @@
   <div id="view-emp" style="display:none;flex:1;overflow:auto;min-height:0">
     <div class="panel">
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-        <input class="srch" id="esrch" type="text" placeholder="🔍 ค้นหาพนักงาน..." oninput="renderEmp()"
-          style="max-width:240px;background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
-        <select class="filt" id="epf" onchange="renderEmp()"
-          style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
-          <option value="">ทุกแผนก</option>
-        </select>
+        <input class="srch" id="esrch" type="text" placeholder="🔍 ค้นหาพนักงาน..." oninput="renderEmp()" style="max-width:240px;background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)">
+        <select class="filt" id="epf" onchange="renderEmp()" style="background:#fff;border-color:#e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.02)"><option value="">ทุกแผนก</option></select>
         <div style="margin-left:auto;display:flex;gap:8px">
-          <button class="btn" onclick="showMv('new')"
-            style="background:#ecfdf5;color:#047857;border-color:#a7f3d0">&#x1F7E2; บันทึกเข้าใหม่</button>
-          <button class="btn" onclick="showMv('out')"
-            style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">&#x1F534; บันทึกพ้นสภาพ</button>
+          <button class="btn" onclick="showMv('new')" style="background:#ecfdf5;color:#047857;border-color:#a7f3d0">&#x1F7E2; บันทึกเข้าใหม่</button>
+          <button class="btn" onclick="showMv('out')" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca">&#x1F534; บันทึกพ้นสภาพ</button>
           <button class="btn btn-blue" onclick="showModal('add-modal')">+ เพิ่มข้อมูลพนักงาน</button>
         </div>
       </div>
@@ -1650,14 +685,7 @@
       <div class="card">
         <table class="et" style="width:100%">
           <thead>
-            <tr>
-              <th style="width:50px;text-align:center">#</th>
-              <th>ชื่อ-นามสกุล</th>
-              <th>ชื่อเล่น</th>
-              <th>ตำแหน่ง</th>
-              <th>เริ่มงาน</th>
-              <th style="text-align:center">จัดการ</th>
-            </tr>
+            <tr><th style="width:50px;text-align:center">#</th><th>ชื่อ-นามสกุล</th><th>ชื่อเล่น</th><th>ตำแหน่ง</th><th>เริ่มงาน</th><th style="text-align:center">จัดการ</th></tr>
           </thead>
           <tbody id="etbody"></tbody>
         </table>
@@ -1671,12 +699,10 @@
       <h3>เพิ่มพนักงานใหม่</h3>
       <div class="mf"><label>ชื่อ-นามสกุล (เต็ม)</label><input id="ae-name" placeholder="นาย/นางสาว..."></div>
       <div class="mf"><label>ชื่อเล่น</label><input id="ae-nick" placeholder="ชื่อเล่น"></div>
-      <div class="mf"><label>แผนก / ตำแหน่ง</label><input id="ae-pos" list="pos-dl"
-          placeholder="พิมพ์หรือเลือก..."><datalist id="pos-dl"></datalist></div>
+      <div class="mf"><label>แผนก / ตำแหน่ง</label><input id="ae-pos" list="pos-dl" placeholder="พิมพ์หรือเลือก..."><datalist id="pos-dl"></datalist></div>
       <div class="mf"><label>วันที่เริ่มงาน</label><input id="ae-start" type="date"></div>
       <div class="mac">
-        <button class="btn" onclick="closeModal('add-modal')"
-          style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
+        <button class="btn" onclick="closeModal('add-modal')" style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
         <button class="btn btn-blue" onclick="saveEmp()">+ เพิ่มเข้าสู่ระบบ</button>
       </div>
     </div>
@@ -1692,8 +718,7 @@
       <div class="mf"><label>ตำแหน่ง</label><input id="ee-pos" list="pos-dl"></div>
       <div class="mf"><label>วันที่เริ่มงาน</label><input id="ee-start" type="date"></div>
       <div class="mac">
-        <button class="btn" onclick="closeModal('edit-emp-modal')"
-          style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
+        <button class="btn" onclick="closeModal('edit-emp-modal')" style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
         <button class="btn btn-blue" onclick="saveEditEmp()">บันทึกข้อมูล</button>
       </div>
     </div>
@@ -1709,8 +734,7 @@
       <div class="mf"><label>วันที่ (มีผล)</label><input id="mv-date" type="date"></div>
       <div class="mf"><label>หมายเหตุ/เหตุผล</label><input id="mv-note" placeholder="..."></div>
       <div class="mac">
-        <button class="btn" onclick="closeModal('mv-modal')"
-          style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
+        <button class="btn" onclick="closeModal('mv-modal')" style="background:#f8f9fc;border-color:#e2e8f0">ยกเลิก</button>
         <button class="btn btn-blue" onclick="saveMv()">บันทึก</button>
       </div>
     </div>
@@ -1720,12 +744,9 @@
   <div class="modal-bg" id="day-modal">
     <div class="modal" style="width:480px">
       <h3 id="day-modal-title" style="margin-bottom:8px"></h3>
-      <div style="font-size:13px;color:#64748b;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px">
-        รายละเอียดการเข้างานประจำวัน</div>
-      <div id="day-modal-body" style="max-height:400px;overflow-y:auto;font-size:13px;color:#334155;line-height:1.6">
-      </div>
-      <div class="mac"><button class="btn btn-black" onclick="closeModal('day-modal')"
-          style="width:100%">ปิดหน้าต่าง</button></div>
+      <div style="font-size:13px;color:#64748b;margin-bottom:20px;border-bottom:1px solid #e2e8f0;padding-bottom:12px">รายละเอียดการเข้างานประจำวัน</div>
+      <div id="day-modal-body" style="max-height:400px;overflow-y:auto;font-size:13px;color:#334155;line-height:1.6"></div>
+      <div class="mac"><button class="btn btn-black" onclick="closeModal('day-modal')" style="width:100%">ปิดหน้าต่าง</button></div>
     </div>
   </div>
 
@@ -1752,7 +773,7 @@
       'กะทำงาน 12': '06:00-15:00', 'กะเช้าแอดมิน': '06:00-15:00',
       'Live-07': '07:00-16:00', 'แคมเปญ 04': '11:00-20:00', 'กะงานไดกิ': '08:00-17:00'
     };
-    var emps = sload('employees') || [{ "id": "1", "name": "นางสาวลลิตา ฤทธิธรรม", "nickname": "มุก", "position": "เลขาผู้บริหาร", "startDate": "" }, { "id": "2", "name": "นางสาวพรรณประภา นารถน้อย", "nickname": "พรรณ", "position": "IA", "startDate": "" }, { "id": "3", "name": "นายสิทธิชัย เทพศิริ", "nickname": "ฟลุ๊ค", "position": "IA", "startDate": "" }, { "id": "4", "name": "นางสาวปาริฉัตร ยิ้มแต้", "nickname": "อีฟ", "position": "การตลาด Facebook", "startDate": "" }, { "id": "5", "name": "นายสมรส สุกสา", "nickname": "พัน", "position": "การตลาด Facebook", "startDate": "" }, { "id": "6", "name": "นางสาวณัฐสินี เอกณรงค์พันธ์", "nickname": "ปอ", "position": "การตลาด Facebook", "startDate": "" }, { "id": "7", "name": "นายนัฐพันธ์ ดอนสุวรรณ์", "nickname": "เตอร์", "position": "การตลาด Facebook", "startDate": "" }, { "id": "8", "name": "นายพงศธร ทับยาง", "nickname": "นิว", "position": "การตลาด Facebook", "startDate": "" }, { "id": "9", "name": "นางสาวณฐิดา ธรรมเจริญ", "nickname": "ปลิว", "position": "การตลาด Facebook", "startDate": "" }, { "id": "10", "name": "นางสาวศรัณยา ใบเตย", "nickname": "หมิว", "position": "การตลาด Facebook", "startDate": "" }, { "id": "11", "name": "นายธีรภัทร สันติธรรมโชค", "nickname": "โชกุล", "position": "การตลาด Facebook", "startDate": "" }, { "id": "12", "name": "นางสาววรลักษณ์ อุบลไทร", "nickname": "ใหม่", "position": "Support", "startDate": "" }, { "id": "13", "name": "นางสาวราตรี อรุณศิริ", "nickname": "ไอติม", "position": "Support", "startDate": "" }, { "id": "14", "name": "นางสาวจิณณ์จุฑา คำแดง", "nickname": "แป้ง", "position": "การตลาด Lazada", "startDate": "" }, { "id": "15", "name": "นางสาวปรียาภรณ์ ดวงมณี", "nickname": "หมิว", "position": "การตลาด Lazada", "startDate": "" }, { "id": "16", "name": "นางสาวไอลดา ลิ้นจี่", "nickname": "อาย", "position": "การตลาด Shopee", "startDate": "" }, { "id": "17", "name": "นางสาวธัญกมล อ่อนเชื้อ", "nickname": "หมิว", "position": "การตลาด Shopee", "startDate": "" }, { "id": "18", "name": "นางสาวรังสิมา สง่าวงศ์", "nickname": "พลอย", "position": "การตลาด Shopee", "startDate": "" }, { "id": "19", "name": "นางสาวกฤษณา วาทะเรืองขจร", "nickname": "กิด", "position": "การตลาด Shopee", "startDate": "" }, { "id": "20", "name": "นางสาวจิราพัชร วรรณมณฑา", "nickname": "ยะหยา", "position": "การตลาด Shopee", "startDate": "" }, { "id": "21", "name": "นางสาวชลิวรรณ บุญสวัสดิ์", "nickname": "ลูกตาล", "position": "การตลาด Shopee", "startDate": "" }, { "id": "22", "name": "นางสาวอาทิตยา สังวาลย์ไพร", "nickname": "สอง", "position": "การตลาด Shopee", "startDate": "" }, { "id": "23", "name": "นางสาวพฤจิ ต่อจรัส", "nickname": "เพลง", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "24", "name": "นายจักรพงศ์ ทับนาง", "nickname": "มีน", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "25", "name": "นางสาวศิริพันธุ์ อุดรรุ่ง", "nickname": "เอ๊ะ", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "26", "name": "นางสาวจิรนันท์ ทองจอน", "nickname": "กีต้าร์", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "27", "name": "นางสาวกนกทิพย์ ดอกประยงค์", "nickname": "กิ๊ป", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "28", "name": "นายธีรวัฒน์ จันโทกูล", "nickname": "เบ๊นซ์", "position": "การตลาดออนไลน์", "startDate": "" }, { "id": "29", "name": "นางสาวชาลิษา วงษ์รักษา", "nickname": "ข้าวโอ๊ต", "position": "จัดซื้อ", "startDate": "" }, { "id": "30", "name": "นายอนุวัฒน์ นิ่มทัศนศิริ", "nickname": "จิว", "position": "จัดซื้อ", "startDate": "" }, { "id": "31", "name": "นางสาวณัฐกานต์ คงเจริญ", "nickname": "จูน", "position": "จัดซื้อ", "startDate": "" }, { "id": "32", "name": "นางสาววรพรรณ พจน์มนปิติ", "nickname": "อุ่น", "position": "จัดซื้อ", "startDate": "" }, { "id": "33", "name": "นางสาวณิยวรรณ พันธ์แจ่ม", "nickname": "กิ๊ก", "position": "จัดซื้อ", "startDate": "" }, { "id": "34", "name": "นางสาวฐิติพร สระทองย่อ", "nickname": "จามาย", "position": "จัดซื้อ", "startDate": "" }, { "id": "35", "name": "นางสาวพรทิพย์ กาญจนแสนส่ง", "nickname": "น้ำขิง", "position": "จัดซื้อ", "startDate": "" }, { "id": "36", "name": "นายกฤติน ตันเสียงสม", "nickname": "ตอง", "position": "ล่ามภาษาจีน", "startDate": "" }, { "id": "37", "name": "นางสาวกาญจนาพร ทวีปเรืองอุดม", "nickname": "กาน", "position": "จัดซื้อ", "startDate": "" }, { "id": "38", "name": "นางสาวกานดา พลจร", "nickname": "แจ๋ม", "position": "แบรนดิ้ง", "startDate": "" }, { "id": "39", "name": "นางสาวสุชานันท์ พันธ์เลิศ", "nickname": "วิว", "position": "แบรนดิ้ง", "startDate": "" }, { "id": "40", "name": "นางสาวพิชชากร เกิดไพบูลย์", "nickname": "ฝ้าย", "position": "แบรนดิ้ง", "startDate": "" }, { "id": "41", "name": "นางสาวจินตนา คลายทุกข์", "nickname": "จิน", "position": "ผู้ช่วยแบรนดิ้ง", "startDate": "" }, { "id": "42", "name": "นายศิวกร ศรแก้ว", "nickname": "ฟิวส์", "position": "เซลล์ฝ่ายขาย", "startDate": "" }, { "id": "43", "name": "นางสาวเจษฎาพร นิ่มเจริญ", "nickname": "เพียว", "position": "R&D (ดูแลเเบรนดิ้ง)", "startDate": "" }, { "id": "44", "name": "นางสาวปรียานุช เศษตะกิจ", "nickname": "แบม", "position": "ซัพพอร์ตแบรนด์", "startDate": "" }, { "id": "45", "name": "นางสาวอาริษา ริ้วทองชุ่ม", "nickname": "ฟ้า", "position": "แบรนดิ้ง", "startDate": "" }, { "id": "46", "name": "นางสาวกานต์สิรี สมิทธิทรัพย์", "nickname": "ลูกเกด", "position": "หัวหน้าส่งออกพัสดุ", "startDate": "" }, { "id": "47", "name": "นางสาวสิริยาภรณ์ สาลีวัสศอาภรณ์", "nickname": "สิ", "position": "Admin (แบรนดิ้ง)", "startDate": "" }, { "id": "48", "name": "นางสาวนฤมล บำรุงราษฏร์", "nickname": "มน", "position": "Admin (แบรนดิ้ง)", "startDate": "" }, { "id": "49", "name": "นางสาวรุ่งทิวา โพธิ์แจ่ม", "nickname": "ออมสิน", "position": "Admin (แบรนดิ้ง)", "startDate": "" }, { "id": "50", "name": "นางสาวอรทัย ทับสุข", "nickname": "หยก", "position": "Admin (แบรนดิ้ง)", "startDate": "" }, { "id": "51", "name": "นางสาวปิ่นสุดา คงวัน", "nickname": "มีมี่", "position": "ไลฟ์สด", "startDate": "" }, { "id": "52", "name": "นายวุฒินันท์ ช่วงโชติ", "nickname": "วีแมน", "position": "ไลฟ์สด", "startDate": "" }, { "id": "53", "name": "นางสาวทิพกฤตา สุขุมจรูญจิตร", "nickname": "เอ๋ย", "position": "ไลฟ์สด", "startDate": "" }, { "id": "54", "name": "นางสาวชญาดา นาคเกตุ", "nickname": "ทัดดาว", "position": "ไลฟ์สด", "startDate": "" }, { "id": "55", "name": "นางสาวปริญญา ไพรวัลย์", "nickname": "จินนี่", "position": "ไลฟ์สด", "startDate": "" }, { "id": "56", "name": "นายณัฐพงษ์ นพพลั้ง", "nickname": "แซ็ก", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "57", "name": "นายจักรกฤษ ชินเครือ", "nickname": "บาส", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "58", "name": "นายวสุธร กิตติวิริยะการ", "nickname": "นิว", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "59", "name": "นายกิตติพงษ์ ลิ้มประเสริฐยิ่ง", "nickname": "ฟิล์ม", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "60", "name": "นายอภิวิชญ์ กับบุญ", "nickname": "ปอนด์", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "61", "name": "นายปฏิภาณ คงคาหลวง", "nickname": "ฟิล์ม", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "62", "name": "นายวิชัย เชื้อเมืองพาน", "nickname": "มาย", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "63", "name": "นายพิพัฒพงศ์ พินิจการณ์", "nickname": "ทิพย์", "position": "ช่างซ่อมบำรุง", "startDate": "" }, { "id": "64", "name": "นางสาวชลาลัย ทรัพย์บดี", "nickname": "น้อง", "position": "บัญชี", "startDate": "" }, { "id": "65", "name": "นางสาวนวพรรณ แสงนำชัย", "nickname": "หมวย", "position": "บัญชี", "startDate": "" }, { "id": "66", "name": "นางสาวฐานิศพัชธา ภูวพงศ์ธนนท์", "nickname": "แก้ม", "position": "บัญชี", "startDate": "" }, { "id": "67", "name": "นางสาวปิยวรรณ อำไพจิต", "nickname": "แพรว", "position": "บัญชี", "startDate": "" }, { "id": "68", "name": "นางวารี สินสุข", "nickname": "ลูกหว้า", "position": "บุคคล", "startDate": "" }, { "id": "69", "name": "นายธฤต หลีล้วน", "nickname": "ซัน", "position": "บุคคล", "startDate": "" }, { "id": "70", "name": "นายกิตติวัฒน์ เอกรัตนณัฐ", "nickname": "เบียร์", "position": "บุคคล", "startDate": "" }, { "id": "71", "name": "นางสาวสิริเนตร ช่างเรือ", "nickname": "แนน", "position": "บุคคล", "startDate": "" }, { "id": "72", "name": "นางสาววนิดา ภิรมย์สด", "nickname": "น้ำ", "position": "แม่บ้าน", "startDate": "" }, { "id": "73", "name": "นายธนากร ม่อมวิทย์", "nickname": "เก็ต", "position": "IT", "startDate": "" }, { "id": "74", "name": "นายปริญญา ทรัพย์แตง", "nickname": "ตาล", "position": "Content", "startDate": "" }, { "id": "75", "name": "นายอรรถพล แซ่ตั้ง", "nickname": "บูม", "position": "Content", "startDate": "" }, { "id": "76", "name": "นายปุญญพัฒน์ ทุมะลิ", "nickname": "เดียว", "position": "Content", "startDate": "" }, { "id": "77", "name": "นายธนพัฒน์ พ่วงทรัพย์สิน", "nickname": "เนม", "position": "Content", "startDate": "" }, { "id": "78", "name": "นางสาวกัญญา ขาวพลับ", "nickname": "กัน", "position": "Graphic design", "startDate": "" }, { "id": "79", "name": "นายชวภณ อุดมธราวุฒิ", "nickname": "พีช", "position": "Graphic design", "startDate": "" }, { "id": "80", "name": "นางสาวรัตนาภรณ์ ล้อมวงษ์", "nickname": "เอย", "position": "นักศึกษาฝึกงาน", "startDate": "" }, { "id": "81", "name": "นางสาวปาลิตา จันทร์ลอยนภา", "nickname": "ปาร์ตี้", "position": "Graphic design", "startDate": "" }, { "id": "82", "name": "นางสาวรัฐภรณ์ สันต์ธนะวาณิช", "nickname": "ใบเตย", "position": "Graphic design", "startDate": "" }, { "id": "83", "name": "นางสาวศิริทิพย์ กุศลใบบุญ", "nickname": "ก้อย", "position": "ประสานงาน", "startDate": "" }, { "id": "84", "name": "นางสาวฐิติพร ไกรศรานนท์", "nickname": "เมย์", "position": "ประสานงาน", "startDate": "" }, { "id": "85", "name": "นางสาวพีชญาดา คล้ายบรรจง", "nickname": "บีม", "position": "ประสานงาน", "startDate": "" }, { "id": "86", "name": "นางสาวชนัณธิญา คำเกลี้ยง", "nickname": "อัยย์", "position": "ประสานงาน", "startDate": "" }, { "id": "87", "name": "นายวิศวะ เดชรา", "nickname": "ไนซ์", "position": "ประสานงาน", "startDate": "" }, { "id": "88", "name": "นางสาวศุภนิดา เพ็ชรเอือง", "nickname": "เนย", "position": "ประสานงาน", "startDate": "" }, { "id": "89", "name": "นางสาวเจนจิรา มีชำนาญ", "nickname": "เจน", "position": "ประสานงาน", "startDate": "" }, { "id": "90", "name": "นางสาวชยุตรา พลายงาม", "nickname": "เมย์", "position": "Sale Admin", "startDate": "" }, { "id": "91", "name": "นางสาวอริสรา เสาฟอง", "nickname": "อัญณ์", "position": "Sale Admin", "startDate": "" }, { "id": "92", "name": "นางสาวจีรภรณ์ ทับทิมโต", "nickname": "ปีโป้", "position": "Sale Admin", "startDate": "" }, { "id": "93", "name": "นางสาวณัชมนต สิทธิ์ถิระวงษ์", "nickname": "กีต้าร์", "position": "Sale Admin", "startDate": "" }, { "id": "94", "name": "นางสาวพรศิริ เถรกุล", "nickname": "จอย", "position": "Sale Admin", "startDate": "" }, { "id": "95", "name": "นางสาววิภาวรรณ แก้วมณี", "nickname": "เพชร", "position": "Sale Admin", "startDate": "" }, { "id": "96", "name": "นางสาวสุทธิดา เอี่ยมนุ่ม", "nickname": "เดียร์", "position": "Sale Admin", "startDate": "" }, { "id": "97", "name": "นายวิศรุต สร้อยสำราญ", "nickname": "บิว", "position": "Sale Admin", "startDate": "" }, { "id": "98", "name": "นายณัฐพงษ์ ดาสาลี", "nickname": "โอ", "position": "Sale Admin", "startDate": "" }, { "id": "99", "name": "นายรพีพัทธ์ โชติอาริยพงษ์", "nickname": "ริว", "position": "Sale Admin", "startDate": "" }, { "id": "100", "name": "นางสาวมัสยา แสงประสิทธิ์", "nickname": "เกล้า", "position": "Sale Admin", "startDate": "" }, { "id": "101", "name": "นางสาววิชชุนันท์ ทองคำ", "nickname": "ป่าน", "position": "Sale Admin", "startDate": "" }, { "id": "102", "name": "นางสาวชมพูนุช บำเรอจิต", "nickname": "แป้ง", "position": "Sale Admin", "startDate": "" }, { "id": "103", "name": "นางสาวจริญญา โพธิ์บุตร", "nickname": "มิ้น", "position": "Sale Admin", "startDate": "" }, { "id": "104", "name": "นายจิระพงศ์ สุดโกศล", "nickname": "อ้น", "position": "Sale Admin", "startDate": "" }, { "id": "105", "name": "นายสุวิจักขณ์ กับบุญ", "nickname": "ออย", "position": "Sale Admin", "startDate": "" }, { "id": "106", "name": "นางสาวอนันตญา อารมณ์", "nickname": "หมูแดง", "position": "Sale Admin", "startDate": "" }, { "id": "107", "name": "นายทศพร แสนปัญญา", "nickname": "เป๊ป", "position": "Sale Admin", "startDate": "" }, { "id": "108", "name": "นางสาวนิชาดา ผุยรอด", "nickname": "มาย", "position": "Sale Admin", "startDate": "" }, { "id": "109", "name": "นางสาวผกามาศ โพธิ์บุตร", "nickname": "ฟ้า", "position": "Sale Admin", "startDate": "" }, { "id": "110", "name": "นางสาวมุทิตา ลี้ฮะจือ", "nickname": "มุก", "position": "Sale Admin", "startDate": "" }, { "id": "111", "name": "นางสาวอัมพิกา แก้วเจริญ", "nickname": "พลอย", "position": "Add-Order", "startDate": "" }, { "id": "112", "name": "นางสาวอภิญญา แก้วเจริญ", "nickname": "แพรว", "position": "Add-Order", "startDate": "" }, { "id": "113", "name": "นายบุญญารัตน์​ ศรีเวช", "nickname": "เคน", "position": "Add-Order", "startDate": "" }, { "id": "114", "name": "นางสาวชนัฏฏา เนื่องโนราช", "nickname": "แครอท", "position": "Telesale", "startDate": "" }, { "id": "115", "name": "นางสาวพิมพ์อร หลีเจริญ", "nickname": "เมย์", "position": "Telesale", "startDate": "" }, { "id": "116", "name": "นายฐิติพงศ์ บุญหมั้น", "nickname": "เจ", "position": "Telesale", "startDate": "" }, { "id": "117", "name": "นางสาวกัลยาพร นาคะเกตุ", "nickname": "กิ๊ก", "position": "Telesale", "startDate": "" }, { "id": "118", "name": "นางสาวปาริตา แว่นแก้ว", "nickname": "นุ่น", "position": "Telesale", "startDate": "" }, { "id": "119", "name": "นางสาวพัทธ์ธีรา บุญใบ", "nickname": "อ้อน", "position": "Telesale", "startDate": "" }, { "id": "120", "name": "นางสาวญาดา จอนมะริด", "nickname": "พลอย", "position": "Telesale", "startDate": "" }, { "id": "121", "name": "นางสาวกมลณัช เติมงาม", "nickname": "นัท", "position": "Telesale", "startDate": "" }, { "id": "122", "name": "นางสาวสุณิสา ดอนมืด", "nickname": "ปอย", "position": "Telesale", "startDate": "" }, { "id": "123", "name": "นางสาวจิรนุช ประสมเพชร", "nickname": "เก๋", "position": "Telesale", "startDate": "" }, { "id": "124", "name": "นางสาวพรนิภา เพชรคนชม", "nickname": "ซิน", "position": "Telesale", "startDate": "" }, { "id": "125", "name": "นายปรเมษฐ สุขไกร", "nickname": "แมน", "position": "Telesale", "startDate": "" }, { "id": "126", "name": "นางสาวณัฐกฤตา ไหลวัฒนชัย", "nickname": "น้ำตาล", "position": "Telesale", "startDate": "" }, { "id": "127", "name": "นางสาวฐานิดา งามลม", "nickname": "ข้าว", "position": "Telesale", "startDate": "" }, { "id": "128", "name": "นางสาวไอยดา พรมมาเดช", "nickname": "กิ๊บ", "position": "Telesale", "startDate": "" }, { "id": "129", "name": "นางสาวภรณ์ทิพย์ บุญศรี", "nickname": "กระแต", "position": "Telesale", "startDate": "" }, { "id": "130", "name": "นางสาวอภิสรา นุกาศ", "nickname": "อาย", "position": "Telesale", "startDate": "" }, { "id": "131", "name": "นางสาวจินตรา เพชรเที่ยง", "nickname": "จิน", "position": "Telesale", "startDate": "" }, { "id": "132", "name": "นางสาววนิดา กองเทวี", "nickname": "แบม", "position": "Telesale", "startDate": "" }, { "id": "133", "name": "นางสาวณัฐฐาพร พันหุ่น", "nickname": "เมย์", "position": "Telesale", "startDate": "" }, { "id": "134", "name": "นางสาวสาวิตรี สุขไกร", "nickname": "แคท", "position": "Telesale", "startDate": "" }, { "id": "135", "name": "นายอานนท์ เซี่ยงเจ็น", "nickname": "เจน", "position": "Telesale", "startDate": "" }, { "id": "136", "name": "นางสาวณัฐธิดา ศิลปพงษ์", "nickname": "ขวัญ", "position": "Telesale", "startDate": "" }, { "id": "137", "name": "นางสาวไอรดา คำดี", "nickname": "ไอซ์", "position": "Telesale", "startDate": "" }, { "id": "138", "name": "นางสาวพรรณวษา ลีลาวิวัฒน์", "nickname": "พรีม", "position": "KOL", "startDate": "" }, { "id": "139", "name": "นางสาวณัฎฐวี บัวอ่อน", "nickname": "ฟ้า", "position": "จัดซื้อ", "startDate": "" }, { "id": "140", "name": "นางสาวภัทร์นรินทร์ บุญรักษา", "nickname": "จิ๋ว", "position": "CS แพลดฟอร์ม", "startDate": "" }, { "id": "141", "name": "นางสาวนภาพร งามลม", "nickname": "ข้าวตัง", "position": "Telesales ฝึกงาน", "startDate": "" }, { "id": "142", "name": "นางสาววรฤทัย ธูปบูชา", "nickname": "เนตร", "position": "Telesales ฝึกงาน", "startDate": "" }, { "id": "143", "name": "นายยงศิลป์ รัตนา", "nickname": "ไฟแนนท์", "position": "เจ้าหน้าที่จัดซื้อภาษาจีน", "startDate": "" }, { "id": "144", "name": "นางสาวธันย์วรัตน์ แก้ววิลัย", "nickname": "เตย", "position": "CS แพลดฟอร์ม", "startDate": "" }, { "id": "145", "name": "นายสิวณัฐ พูลบางยุง", "nickname": "เอี๊ยม", "position": "หัวหน้าช่าง", "startDate": "" }, { "id": "146", "name": "นางสาวณภัทร กิมฮะ", "nickname": "มิ้นท์", "position": "Content", "startDate": "" }, { "id": "147", "name": "นายอิทธิกร สระทองหน", "nickname": "เจ", "position": "Graphic design", "startDate": "" }, { "id": "148", "name": "นายพัสกร มะรินจันทร์", "nickname": "เจ๋ง", "position": "Graphic design", "startDate": "" }, { "id": "149", "name": "นายธีรศักดิ์ ปรึกษา", "nickname": "เบียร์", "position": "Graphic design", "startDate": "" }, { "id": "150", "name": "นางสาวนวภรณ์ ศูนย์กลาง", "nickname": "จ๋า", "position": "Telesale", "startDate": "" }, { "id": "151", "name": "นางสาวชญานิน จงสิริพร", "nickname": "ปุ้ย", "position": "หัวหน้าทีมการตลาดออนไลน์", "startDate": "" }, { "id": "152", "name": "นายปัญญา จินดา", "nickname": "เตอร์", "position": "IT นักศึกษาฝึกงาน", "startDate": "" }, { "id": "153", "name": "นายเขมชาติ สังข์ทรัพย์", "nickname": "เปา", "position": "IT นักศึกษาฝึกงาน", "startDate": "" }];
+    var emps = sload('employees') || [{ "id": "1", "name": "นางสาวลลิตา ฤทธิธรรม", "nickname": "มุก", "position": "เลขาผู้บริหาร", "startDate": "" }]; // Truncated default mock data for brevity
     var att = sload('attendance') || {};
     var mvs = sload('movements') || [];
     var TODAY = new Date();
@@ -1775,7 +796,7 @@
       if (!att[date]) att[date] = {};
       att[date][eid] = { code: code, note: note };
       ssave('attendance', att);
-      sbUpsertAttendance(eid, date, code, note); // sync ขึ้น Supabase แบบ non-blocking
+      sbUpsertAttendance(eid, date, code, note); 
     }
     function getDateRange(period) {
       var today = new Date(cur), start, end;
@@ -1814,6 +835,14 @@
         if (note.indexOf(keys[i]) >= 0 && keys[i] !== 'กะงาน 4') return SHIFT_TIMES[keys[i]];
       }
       return '';
+    }
+
+    // ===================== MODAL HANDLERS =====================
+    function showModal(id) {
+        document.getElementById(id).classList.add('open');
+    }
+    function closeModal(id) {
+        document.getElementById(id).classList.remove('open');
     }
 
     // ===================== RENDER =====================
@@ -2001,7 +1030,7 @@
       });
       if (t === 'summary') renderSummary();
       if (t === 'dashboard') renderDashboard();
-      if (t === 'emp') { renderEmp(); renderMv(); }
+      if (t === 'emp') { renderEmp(); /* renderMv(); */ }
       fillFilters();
     }
 
@@ -2013,7 +1042,7 @@
       var sort = document.getElementById('sum-sort').value;
       var dates = getDateRange(period);
       var dn = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-      // Daily cards
+      
       var cards = document.getElementById('day-cards');
       cards.innerHTML = dates.map(function (d) {
         var dd = new Date(d), cnt = {};
@@ -2031,7 +1060,7 @@
           '<div style="font-size:11px;color:#94a3b8;margin-top:4px;min-height:16px">' + extra + '</div>' +
           '</div>';
       }).join('');
-      // Per-employee table
+      
       var list = emps.filter(function (e) {
         if (pf && e.position !== pf) return false;
         if (q && e.name.toLowerCase().indexOf(q) < 0 && e.nickname.toLowerCase().indexOf(q) < 0) return false;
@@ -2113,16 +1142,16 @@
         var s = getStats(e.id, dates);
         return { No: i + 1, Name: e.name, Nick: e.nickname, Position: e.position, Present: s.work, Late: s.late, Sick: s.sick, Vacation: s.vacation, Personal: s.personal, Absent: s.absent, NoScan: s.noscan };
       });
-      var ws1 = makeWs(r1);
+      var ws1 = XLSX.utils.json_to_sheet(r1);
       ws1['!cols'] = [{ wch: 4 }, { wch: 28 }, { wch: 9 }, { wch: 18 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 7 }];
-      XLSX.utils.book_append_sheet(wb, 'Summary', ws1);
+      XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
       var r2 = dates.filter(function (d) { return att[d]; }).map(function (d) {
         var dd = new Date(d), cnt = {};
         emps.forEach(function (e) { var c = ge(e.id, d).code || ''; cnt[c] = (cnt[c] || 0) + 1; });
         var w = (cnt['1'] || 0) + (cnt['ส'] || 0) + (cnt['f'] || 0) + (cnt['s'] || 0) + (cnt['b'] || 0);
         return { Date: d, Day: dn[dd.getDay()], Present: w, Late: cnt['ส'] || 0, Sick: cnt['ป'] || 0, Personal: (cnt['ก'] || 0) + (cnt['อ'] || 0), Vacation: cnt['ร'] || 0, Special: (cnt['พ'] || 0) + (cnt['พร'] || 0), Absent: cnt['ข'] || 0, NoScan: cnt['s'] || 0, Weekend: cnt['w'] || 0 };
       });
-      if (r2.length) { XLSX.utils.book_append_sheet(wb, 'Daily', makeWs(r2)); }
+      if (r2.length) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(r2), 'Daily'); }
       var d = new Date(), lbl = period === 'week' ? 'Week' : period === 'month' ? 'Month' : 'All';
       xlsxDownload(wb, 'HR_' + lbl + '_' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.xlsx');
     }
@@ -2323,741 +1352,106 @@
       }).join('');
     }
 
-    // ===================== EMP TAB =====================
-    function renderEmp() {
-      var q = document.getElementById('esrch').value.toLowerCase();
-      var pf = document.getElementById('epf').value;
-      var list = emps.filter(function (e) {
-        if (q && e.name.toLowerCase().indexOf(q) < 0 && e.nickname.toLowerCase().indexOf(q) < 0) return false;
-        if (pf && e.position !== pf) return false; return true;
-      });
-      document.getElementById('etbody').innerHTML = list.map(function (e, i) {
-        return '<tr>' +
-          '<td style="padding:10px;color:#94a3b8;text-align:center">' + (i + 1) + '</td>' +
-          '<td style="padding:10px;font-weight:500;color:#0f172a">' + e.name + '</td>' +
-          '<td style="padding:10px;font-weight:700;color:#2563eb">' + e.nickname + '</td>' +
-          '<td style="padding:10px;color:#64748b">' + e.position + '</td>' +
-          '<td style="padding:10px;color:#94a3b8">' + (e.startDate || '-') + '</td>' +
-          '<td style="padding:10px;display:flex;gap:6px;justify-content:center">' +
-          '<button onclick="showEditEmp(\'' + e.id + '\')" class="btn" style="padding:4px 10px;font-size:12px;background:#eff6ff;color:#2563eb;border-color:#bfdbfe">แก้ไข</button>' +
-          '<button onclick="prefillMvOut(\'' + e.id + '\')" class="btn" style="padding:4px 10px;font-size:12px;background:#fef2f2;color:#ef4444;border-color:#fecaca">ลาออก</button>' +
-          '<button onclick="removeEmp(\'' + e.id + '\')" class="btn" style="padding:4px 8px;font-size:12px;color:#94a3b8" title="ลบถาวร">&#x1F5D1;</button>' +
-          '</td>' +
-          '</tr>';
-      }).join('');
-    }
-    function removeEmp(id) {
-      if (!confirm('ยืนยันการลบรายชื่อพนักงานออกจากระบบ?\n(ข้อมูลของพนักงานคนนี้จะไม่แสดงในตารางอีกต่อไป)')) return;
-      emps = emps.filter(function (e) { return e.id !== id; });
-      ssave('employees', emps);
-      sbDeleteEmployee(id); // ลบจาก Supabase ด้วย
-      renderEmp(); fillFilters(); renderSumBar();
-    }
-
-    function showEditEmp(id) {
-      var e = emps.find(function (x) { return x.id === id; });
-      if (!e) return;
-      document.getElementById('ee-id').value = e.id;
-      document.getElementById('ee-name').value = e.name;
-      document.getElementById('ee-nick').value = e.nickname;
-      document.getElementById('ee-pos').value = e.position;
-      document.getElementById('ee-start').value = e.startDate || '';
-      showModal('edit-emp-modal');
-    }
-    function saveEditEmp() {
-      var id = document.getElementById('ee-id').value;
-      var name = document.getElementById('ee-name').value.trim();
-      var nick = document.getElementById('ee-nick').value.trim();
-      var pos = document.getElementById('ee-pos').value.trim();
-      var start = document.getElementById('ee-start').value;
-      if (!name || !nick || !pos) { alert('กรุณากรอกข้อมูลให้ครบถ้วน (ชื่อ, ชื่อเล่น, ตำแหน่ง)'); return; }
-
-      var e = emps.find(function (x) { return x.id === id; });
-      if (e) {
-        e.name = name; e.nickname = nick; e.position = pos; e.startDate = start;
-        ssave('employees', emps);
-        sbUpsertEmployee({ id: id, name: name, nickname: nick, position: pos, startDate: start }); // sync ขึ้น Supabase
-        closeModal('edit-emp-modal');
-        fillFilters(); renderEmp(); renderSumBar();
-        if (mode === 'table') renderTable();
-      }
-    }
-
-    function saveEmp() {
-      var name = document.getElementById('ae-name').value.trim();
-      var nick = document.getElementById('ae-nick').value.trim();
-      var pos = document.getElementById('ae-pos').value.trim();
-      var start = document.getElementById('ae-start').value;
-      if (!name || !nick || !pos) { alert('กรุณากรอกข้อมูลให้ครบถ้วน'); return; }
-
-      var newId = Date.now().toString();
-      var newEmp = { id: newId, name: name, nickname: nick, position: pos, startDate: start };
-      emps.push(newEmp);
-      ssave('employees', emps);
-      sbUpsertEmployee(newEmp); // sync ขึ้น Supabase
-
-      var newMv = {
-        id: newId + '_mv',
-        type: 'new',
-        name: name,
-        nick: nick,
-        pos: pos,
-        date: start || dk(cur),
-        note: 'เพิ่มจากระบบ'
-      };
-      mvs.push(newMv);
-      ssave('movements', mvs);
-      sbInsertMovement(newMv); // sync ขึ้น Supabase
-
-      closeModal('add-modal');
-      fillFilters(); renderEmp(); renderMv(); renderSumBar();
-    }
-
-    function prefillMvOut(id) {
-      var e = emps.find(function (x) { return x.id === id; });
-      if (!e) return;
-      pendingOutId = id;
-      mvType = 'out';
-      document.getElementById('mv-title').textContent = 'บันทึกพนักงานลาออก / พ้นสภาพ';
-      document.getElementById('mv-name').value = e.name;
-      document.getElementById('mv-nick').value = e.nickname;
-      document.getElementById('mv-pos').value = e.position;
-      document.getElementById('mv-date').value = dk(cur);
-      document.getElementById('mv-note').value = '';
-      showModal('mv-modal');
-    }
-
-    function showMv(type) {
-      pendingOutId = null;
-      mvType = type;
-      document.getElementById('mv-title').textContent = type === 'new' ? 'บันทึกพนักงานเข้าใหม่' : 'บันทึกพนักงานพ้นสภาพ';
-      ['mv-name', 'mv-nick', 'mv-pos', 'mv-note'].forEach(function (id) { document.getElementById(id).value = ''; });
-      document.getElementById('mv-date').value = dk(cur);
-      showModal('mv-modal');
-    }
-
-    function saveMv() {
-      var name = document.getElementById('mv-name').value.trim();
-      if (!name) { alert('กรุณากรอกชื่อ'); return; }
-      mvs.push({
-        id: Date.now().toString(),
-        type: mvType,
-        name: name,
-        nick: document.getElementById('mv-nick').value.trim(),
-        pos: document.getElementById('mv-pos').value.trim(),
-        date: document.getElementById('mv-date').value,
-        note: document.getElementById('mv-note').value.trim()
-      });
-      ssave('movements', mvs);
-      sbInsertMovement(mvs[mvs.length - 1]); // sync ขึ้น Supabase
-
-      if (pendingOutId && mvType === 'out') {
-        emps = emps.filter(function (e) { return e.id !== pendingOutId; });
-        ssave('employees', emps);
-        renderEmp(); fillFilters(); renderSumBar(); if (mode === 'table') renderTable();
-        pendingOutId = null;
-      }
-
-      closeModal('mv-modal');
-      renderMv();
-    }
-    function renderMv() {
-      var monthStart = dk(cur).slice(0, 7) + '-01';
-      var newList = mvs.filter(function (m) { return m.type === 'new' && m.date >= monthStart; });
-      var outList = mvs.filter(function (m) { return m.type === 'out' && m.date >= monthStart; });
-      function fmt(m) {
-        return '<div class="mv-row">' +
-          '<div><span style="font-weight:600;color:#0f172a">' + (m.nick ? '' + m.nick + ' ' : '') + m.name + '</span> <span style="color:#64748b;font-size:12px;margin-left:4px">' + m.pos + '</span></div>' +
-          '<div style="display:flex;align-items:center;gap:8px"><span style="color:#94a3b8;font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px">' + m.date + '</span>' +
-          '<button onclick="delMv(\'' + m.id + '\')" style="border:none;background:none;color:#cbd5e1;cursor:pointer;font-size:14px;padding:2px">&#x2715;</button></div>' +
-          '</div>';
-      }
-      var ne = document.getElementById('mv-new'), oe = document.getElementById('mv-out');
-      if (ne) ne.innerHTML = newList.length ? newList.map(fmt).join('') : '<div style="color:#94a3b8;font-size:12px;text-align:center;padding:12px">ยังไม่มีข้อมูลเดือนนี้</div>';
-      if (oe) oe.innerHTML = outList.length ? outList.map(fmt).join('') : '<div style="color:#94a3b8;font-size:12px;text-align:center;padding:12px">ยังไม่มีข้อมูลเดือนนี้</div>';
-    }
-    function delMv(id) { mvs = mvs.filter(function (m) { return m.id !== id; }); ssave('movements', mvs); sbDeleteMovement(id); renderMv(); }
-
-    // ===================== MODAL =====================
-    function showModal(id) { document.getElementById(id).classList.add('open'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
-    // ===================== EXPORT EXCEL =====================
-    function csvDownload(content, filename) {
-      var BOM = '﻿';
-      var blob = new Blob([BOM + content], { type: 'text/csv;charset=utf-8' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click();
-      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
-    }
-    function csvEsc(v) {
-      var s = String(v === null || v === undefined ? '' : v);
-      if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0)
-        return '"' + s.replace(/"/g, '""') + '"';
-      return s;
-    }
-    function exportExcel() {
-      var allD = Object.keys(att).sort();
-      var dn = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-      var hdr = ['No', 'Name', 'Nick', 'Position', 'Start'].concat(allD.map(function (d) { var dd = new Date(d); return dd.getDate() + '/' + (dd.getMonth() + 1) + '(' + dn[dd.getDay()] + ')'; }));
-      var rows = [hdr.map(csvEsc).join(',')];
-      emps.forEach(function (e, i) {
-        var row = [i + 1, e.name, e.nickname, e.position, e.startDate].concat(allD.map(function (d) { return ge(e.id, d).code || ''; }));
-        rows.push(row.map(csvEsc).join(','));
-      });
-      var d = new Date();
-      var fn = 'HR_' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
-      csvDownload(rows.join('\n'), fn + '.csv');
-    }
-
-    // ===================== WORD REPORT (SMART GROUPING & FORMATTING) =====================
-    function generateReport() {
-      var btn = document.getElementById('rpt-btn');
-      btn.textContent = '⏳ กำลังสร้างไฟล์...'; btn.disabled = true;
-      try {
-        var data = buildAttData();
-        buildWordDoc(data);
-      } catch (err) { alert('เกิดข้อผิดพลาด: ' + err.message); }
-      finally { btn.textContent = 'สร้างรายงาน Word'; btn.disabled = false; }
-    }
-
-    function buildAttData() {
-      var date = dk(cur), monthStart = date.slice(0, 7) + '-01', monthDates = getDateRange('month');
-      var sickAcc = {}, lateAcc = {};
-      var deptStats = {};
-      var deptsPresent = {}; // สำหรับนับคนที่มาปกติ แยกตามแผนก
-
-      emps.forEach(function (e) {
-        var sc = 0, lc = 0;
-        if (!deptStats[e.position]) deptStats[e.position] = { empCount: 0, work: 0, late: 0, sick: 0, absent: 0, leave: 0 };
-        deptStats[e.position].empCount++;
-        monthDates.forEach(function (d) {
-          var c = ge(e.id, d).code;
-          if (c === 'ป') { sc++; deptStats[e.position].sick++; }
-          else if (c === 'ส') { lc++; deptStats[e.position].late++; deptStats[e.position].work++; }
-          else if (c === '1' || c === 'f' || c === 's' || c === 'b') { deptStats[e.position].work++; }
-          else if (c === 'ข') { deptStats[e.position].absent++; }
-          else if (c === 'ก' || c === 'ร' || c === 'พ' || c === 'อ') { deptStats[e.position].leave++; }
-        });
-        if (sc >= 1) sickAcc[e.id] = sc;
-        if (lc >= 1) lateAcc[e.id] = lc;
-      });
-
-      var work = 0, sick = 0, personal = 0, vacation = 0, special = 0, holiday = 0, absent = 0, wfh = 0, late = 0, noscan = 0, weekend = 0;
-      var lists = { sick: [], personal: [], vacation: [], special: [], holiday: [], absent: [], late: [], noscan: [], weekend: [], wfh: [] };
-
-      emps.forEach(function (e) {
-        var ent = ge(e.id, date), c = ent.code || '', note = ent.note || '';
-        var obj = { emp: e, note: note, code: c };
-
-        // จัดกลุ่มตามสถานะ
-        if (c === 'ส') { work++; late++; obj.lateAcc = lateAcc[e.id]; lists.late.push(obj); }
-        else if (c === 's') { work++; noscan++; lists.noscan.push(obj); }
-        else if (c === 'f') { work++; wfh++; lists.wfh.push(obj); }
-        else if (c === '1' || c === 'b') {
-          work++;
-          // กรุ๊ปคนที่มาปกติเข้าด้วยกันตามแผนก
-          if (!deptsPresent[e.position]) deptsPresent[e.position] = 0;
-          deptsPresent[e.position]++;
-        }
-        else if (c === 'ป') { sick++; obj.sickAcc = sickAcc[e.id]; lists.sick.push(obj); }
-        else if (c === 'ก' || c === 'อ') { personal++; lists.personal.push(obj); }
-        else if (c === 'ร') { vacation++; lists.vacation.push(obj); }
-        else if (c === 'พ' || c === 'พร') { special++; lists.special.push(obj); }
-        else if (c === 'h' || c === 'H') { holiday++; lists.holiday.push(obj); }
-        else if (c === 'ข') { absent++; lists.absent.push(obj); }
-        else if (c === 'w') { weekend++; lists.weekend.push(obj); }
-      });
-
-      var dn = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'], weekRows = [], tmp = new Date(cur);
-      for (var i = 0; i < 7; i++) { // เอาแค่ 7 วัน
-        var d = tmp.toISOString().slice(0, 10), dd = new Date(d), cnt = {};
-        emps.forEach(function (e) { var c = ge(e.id, d).code || ''; cnt[c] = (cnt[c] || 0) + 1; });
-        var w = (cnt['1'] || 0) + (cnt['ส'] || 0) + (cnt['f'] || 0) + (cnt['s'] || 0) + (cnt['b'] || 0);
-        if (w > 0 || Object.keys(cnt).filter(function (k) { return k; }).length > 0) {
-          weekRows.unshift({ date: d, day: dn[dd.getDay()], dateNum: dd.getDate() + '/' + (dd.getMonth() + 1), work: w, sick: cnt['ป'] || 0, personal: (cnt['ก'] || 0) + (cnt['อ'] || 0), late: cnt['ส'] || 0, absent: cnt['ข'] || 0, noscan: cnt['s'] || 0 });
-        }
-        tmp.setDate(tmp.getDate() - 1);
-      }
-
-      var sickTop = Object.keys(sickAcc).sort(function (a, b) { return sickAcc[b] - sickAcc[a]; }).map(function (id) { var e = emps.find(function (x) { return x.id === id; }); return e ? { name: e.name, nick: e.nickname, pos: e.position, days: sickAcc[id] } : null; }).filter(Boolean).slice(0, 5);
-      var lateTop = Object.keys(lateAcc).sort(function (a, b) { return lateAcc[b] - lateAcc[a]; }).map(function (id) { var e = emps.find(function (x) { return x.id === id; }); return e ? { name: e.name, nick: e.nickname, pos: e.position, times: lateAcc[id] } : null; }).filter(Boolean).slice(0, 5);
-      var newEmps = mvs.filter(function (m) { return m.type === 'new' && m.date >= monthStart; });
-      var outEmps = mvs.filter(function (m) { return m.type === 'out' && m.date >= monthStart; });
-
-      return { date: date, thaiDate: thaiDate(cur), total: emps.length, work: work, sick: sick, personal: personal, vacation: vacation, special: special, holiday: holiday, absent: absent, wfh: wfh, late: late, noscan: noscan, weekend: weekend, lists: lists, weekRows: weekRows, sickTop: sickTop, lateTop: lateTop, newEmps: newEmps, outEmps: outEmps, deptStats: deptStats, deptsPresent: deptsPresent };
-    }
-
-    function buildWordDoc(data) {
-      let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>';
-
-      // Helper สำหรับสร้าง Paragraph ใน Word
-      function p(text, opts = {}) {
-        let bold = opts.bold ? '<w:b/>' : '';
-        let sz = opts.size ? `<w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/>` : '<w:sz w:val="24"/><w:szCs w:val="24"/>';
-        let color = opts.color ? `<w:color w:val="${opts.color}"/>` : '<w:color w:val="333333"/>';
-        let space = `<w:spacing w:after="${opts.after || 100}" ${opts.before ? `w:before="${opts.before}"` : ''} />`;
-        let indent = opts.indent ? `<w:ind w:left="${opts.indent}"/>` : '';
-        let t = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `<w:p><w:pPr>${space}${indent}</w:pPr><w:r><w:rPr>${bold}${sz}${color}<w:rFonts w:ascii="Sarabun" w:hAnsi="Sarabun" w:cs="Sarabun"/></w:rPr><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
-      }
-
-      // --- 1. หัวรายงาน ---
-      xml += p('📋 รายงานการทำงานประจำวัน', { bold: true, size: 36, color: '1e3a8a', after: 40 });
-      xml += p('ฝ่ายบุคคล │ กลุ่มบริษัท MASARU', { size: 28, color: '64748b', after: 40 });
-      xml += p('วันที่ ' + data.thaiDate, { bold: true, size: 28, color: '0f172a', after: 240 });
-
-      // --- 2. สรุป Headcount ---
-      xml += p('   👥  สรุปจำนวนพนักงานประจำวัน  (Daily Headcount Summary)', { bold: true, size: 28, color: '1d4ed8', before: 120, after: 120 });
-      let rate = ((data.work / data.total) * 100).toFixed(1);
-      let rateEmoji = rate >= 95 ? '🟢' : rate >= 85 ? '🟡' : '🔴';
-
-      xml += p(`พนักงานทั้งหมด: ${data.total} คน  |  มาทำงาน: ${data.work} คน  |  Attendance Rate: ${rate}% ${rateEmoji}`, { bold: true, size: 26, indent: 360 });
-
-      let sums = [];
-      if (data.weekend) sums.push(`หยุดประจำ: ${data.weekend}`);
-      if (data.holiday) sums.push(`นักขัตฤกษ์: ${data.holiday}`);
-      if (data.special) sums.push(`หยุดพิเศษ: ${data.special}`);
-      if (data.vacation) sums.push(`ลาพักร้อน: ${data.vacation}`);
-      if (data.sick) sums.push(`ลาป่วย: ${data.sick}`);
-      if (data.personal) sums.push(`ลากิจ: ${data.personal}`);
-      if (data.absent) sums.push(`ขาดงาน: ${data.absent}`);
-      if (data.late) sums.push(`มาสาย: ${data.late}`);
-      if (data.wfh) sums.push(`WFH: ${data.wfh}`);
-      if (data.noscan) sums.push(`ลืมสแกน: ${data.noscan}`);
-
-      xml += p(`รายละเอียด: ` + sums.join('  |  '), { size: 22, color: '475569', indent: 360, after: 240 });
-
-      xml += p('   📋  รายละเอียดพนักงานประจำวัน', { bold: true, size: 28, color: '1d4ed8', before: 120, after: 120 });
-
-      // --- 3. หมวดหมู่: คนที่มาปกติ (รวมเป็นแผนก) ---
-      let normalCount = Object.values(data.deptsPresent).reduce((a, b) => a + b, 0);
-      if (normalCount > 0) {
-        xml += p(`✅ มาทำงานปกติ (${normalCount} คน) — สรุปรายแผนก`, { bold: true, size: 26, color: '047857' });
-        let depts = Object.keys(data.deptsPresent).sort();
-        let dStr = '';
-        depts.forEach((d, i) => {
-          dStr += `${d}: ${data.deptsPresent[d]} คน`;
-          if (i < depts.length - 1) dStr += '  |  ';
-        });
-        xml += p(dStr, { size: 24, color: '334155', indent: 360, after: 200 });
-      }
-
-      // --- 4. หมวดหมู่: ความผิดปกติ (แสดงรายบุคคล) ---
-      const renderAnomaly = (title, emoji, list, colorHex, formatFunc) => {
-        if (list.length === 0) return '';
-        let res = p(`${emoji} ${title} (${list.length} คน)`, { bold: true, size: 26, color: colorHex });
-        list.forEach((item, i) => {
-          res += p(`${i + 1}. ${item.emp.name} (${item.emp.nickname}) — ${item.emp.position} ${formatFunc(item)}`, { size: 24, indent: 360 });
-        });
-        return res + p('', { after: 160 });
-      };
-
-      xml += renderAnomaly('ขาดงาน', '❌', data.lists.absent, 'b91c1c', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('ลาป่วย', '🤒', data.lists.sick, 'b91c1c', item => `(สะสม ${item.sickAcc || 1} วัน) ${item.note ? `[อาการ: ${item.note}]` : ''}`);
-      xml += renderAnomaly('ลากิจ', '📋', data.lists.personal, '0f172a', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('มาสาย', '⏰', data.lists.late, 'd97706', item => {
-        let lateMins = ''; let m = item.note.match(/สาย (\d+) นาที/); if (m) lateMins = m[1] + ' นาที';
-        let rawNote = item.note.replace(/เข้า \d{1,2}:\d{2}/, '').replace(/สาย \d+ นาที/, '').trim();
-        return `(สาย ${lateMins}) ${rawNote ? `[${rawNote}]` : ''}`;
-      });
-      xml += renderAnomaly('ลืมสแกน', '🔍', data.lists.noscan, 'd97706', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('WFH', '💻', data.lists.wfh, '047857', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('ลาพักร้อน', '🏝️', data.lists.vacation, '2563eb', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('หยุดนักขัตฤกษ์', '🎌', data.lists.holiday, '64748b', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('หยุดพิเศษ / ชดเชย', '🌟', data.lists.special, '64748b', item => item.note ? `[${item.note}]` : '');
-      xml += renderAnomaly('หยุดประจำสัปดาห์', '📅', data.lists.weekend, '64748b', item => '');
-
-      // --- 5. การเข้าออก ---
-      if (data.newEmps.length || data.outEmps.length) {
-        xml += p('   👥  พนักงานเข้า–ออกเดือนนี้', { bold: true, size: 28, color: '1d4ed8', before: 120, after: 120 });
-        if (data.newEmps.length) {
-          xml += p(`🟢 เข้าใหม่ (${data.newEmps.length} คน)`, { bold: true, size: 26, color: '047857' });
-          data.newEmps.forEach((m, i) => {
-            let dParts = m.date.split('-'); let dStr = dParts.length === 3 ? `${dParts[2]}/${dParts[1]}` : m.date;
-            xml += p(`${i + 1}. ${m.name} (${m.nick}) — ${m.pos} เริ่มงาน: ${dStr}`, { size: 24, indent: 360 });
-          });
-          xml += p('', { after: 120 });
-        }
-        if (data.outEmps.length) {
-          xml += p(`🔴 พ้นสภาพ (${data.outEmps.length} คน)`, { bold: true, size: 26, color: 'b91c1c' });
-          data.outEmps.forEach((m, i) => {
-            let dParts = m.date.split('-'); let dStr = dParts.length === 3 ? `${dParts[2]}/${dParts[1]}` : m.date;
-            xml += p(`${i + 1}. ${m.name} (${m.nick}) — ${m.pos} วันที่ออก: ${dStr} [${m.note || ''}]`, { size: 24, indent: 360 });
-          });
-          xml += p('', { after: 120 });
-        }
-      }
-
-      // --- 6. Weekly Dashboard ---
-      xml += p('   📊  Weekly Dashboard  —  สัปดาห์ปัจจุบัน', { bold: true, size: 28, color: '1d4ed8', before: 120, after: 120 });
-      data.weekRows.forEach(r => {
-        let rate = ((r.work / data.total) * 100).toFixed(1) + '%';
-        let info = `มา ${r.work} (${rate}) | ป่วย ${r.sick} | ลากิจ ${r.personal} | สาย ${r.late} | ขาด ${r.absent}`;
-        let cColor = r.date === data.date ? '0f172a' : '64748b';
-        xml += p(`${r.day} ${r.dateNum}:  ${info}`, { size: 24, indent: 360, color: cColor, bold: r.date === data.date });
-      });
-
-      xml += p('', { after: 300 });
-      xml += p('ขอบคุณครับ', { size: 26 });
-      xml += p('@All เรื่องงาน เรื่องคน ไว้ใจฝ่ายบุคคล │ M.A.S.A.R.U', { bold: true, size: 26, color: '1d4ed8' });
-
-      // End Document
-      xml += '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1304"/></w:sectPr></w:body></w:document>';
-
-      var rels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
-      var wrels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
-      var ct = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
-
-      var zip = new JSZip();
-      zip.file('_rels/.rels', rels); zip.file('[Content_Types].xml', ct);
-      zip.file('word/document.xml', xml); zip.file('word/_rels/document.xml.rels', wrels);
-
-      zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }).then(function (blob) {
-        var url = URL.createObjectURL(blob), a = document.createElement('a');
-        a.href = url; a.download = 'HR_Report_' + data.date.replace(/-/g, '') + '.docx';
-        document.body.appendChild(a); a.click();
-        setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
-      });
-    }
-
     // ===================== HR CLOUD IMPORT =====================
+    var hrcSelectedDate = null;
+    function pickDateThenImport() {
+      document.getElementById('hrc-date-pick').value = dk(cur); // ตั้งค่าเริ่มต้นเป็นวันที่กำลังดูอยู่
+      showModal('hrc-date-modal');
+    }
+
+    function confirmHrcDate() {
+      hrcSelectedDate = document.getElementById('hrc-date-pick').value;
+      if (!hrcSelectedDate) { alert('กรุณาเลือกวันที่ก่อนครับ'); return; }
+      closeModal('hrc-date-modal');
+      document.getElementById('hrc-file').click(); // เรียกหน้าต่างเลือกไฟล์
+    }
+
     function importHRCloud(input) {
-      var file = input.files[0]; if (!file) return;
-      if (typeof XLSX === 'undefined') {
-        alert('ไลบรารี XLSX ยังไม่โหลด กรุณาต่ออินเทอร์เน็ตแล้วรีเฟรชหน้าใหม่ครับ');
-        input.value = ''; return;
-      }
+      if (!input.files || input.files.length === 0) return;
+      var file = input.files[0];
       var reader = new FileReader();
-      reader.onerror = function () { input.value = ''; alert('อ่านไฟล์ไม่ได้ครับ'); };
-      reader.onload = function (e) {
+      
+      reader.onload = function(e) {
         try {
           var data = new Uint8Array(e.target.result);
-          var wb = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
-          var ws = wb.Sheets[wb.SheetNames[0]];
-          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-          function normName(s) {
-            return String(s).replace(/\u200b/g, '')
-              .replace(/^(LDM|DK)-?\d+\s+/, '').split('\t')[0]
-              .replace(/^(นาย|นางสาว|นาง)(นาย|นางสาว|นาง)/, '$1')
-              .replace(/\s+/g, ' ').trim();
-          }
-          function extractTime(s) {
-            s = String(s);
-            var m = s.match(/(\d{1,2}:\d{2})(?::\d{2})?\s*$/);
-            return m ? m[1] : '';
-          }
-          var parsed = {}, isWD = false, fileDate = '';
-          for (var ri = 0; ri < Math.min(rows.length, 60); ri++) {
-            var c1 = String(rows[ri][1] || '').trim();
-            if (/^(LDM|DK)-?\d+\s+/.test(c1) && c1.indexOf('\t') >= 0) { isWD = true; break; }
-          }
-          for (var ri = 0; ri < 15; ri++) {
-            var c0 = String(rows[ri][0] || '').trim();
-            var c1s = String(rows[ri][1] || '').trim();
-            var src = c0 || c1s;
-            if (!src) continue;
-            var dm = src.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-            if (dm) { fileDate = dm[3] + '-' + dm[2] + '-' + dm[1]; break; }
-            var dm2 = src.match(/(\d{4})-(\d{2})-(\d{2})/);
-            if (dm2) { fileDate = dm2[0].slice(0, 10); break; }
-            var dm3 = src.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-            if (dm3) {
-              var yy = dm3[3], mm = ('0' + dm3[2]).slice(-2), dd = ('0' + dm3[1]).slice(-2);
-              fileDate = yy + '-' + mm + '-' + dd; break;
-            }
-          }
-          var i = 0;
-          if (isWD) {
-            while (i < rows.length) {
-              var row = rows[i], col1 = String(row[1] || '').trim();
-              if (/^(LDM|DK)-?\d+\s+/.test(col1) && col1.indexOf('\t') >= 0) {
-                var name = normName(col1); i++;
-                var shift = '', scan_in = '', late_hrs = '', leave_hrs = '', note = '';
-                while (i < rows.length) {
-                  var r2 = rows[i], c9 = String(r2[9] || '').trim(), c2 = String(r2[2] || '').trim(), c1n = String(r2[1] || '').trim();
-                  if (c9 === 'รวม') { i++; break; }
-                  if (/^(LDM|DK)-?\d+\s+/.test(c1n) && c1n.indexOf('\t') >= 0) break;
-                  if (c2.indexOf('2026') >= 0 || c2.indexOf('2025') >= 0) {
-                    shift = String(r2[4] || '').trim(); scan_in = extractTime(String(r2[6] || ''));
-                    late_hrs = String(r2[14] || '').trim(); leave_hrs = String(r2[21] || '').trim(); note = String(r2[24] || '').trim();
-                  }
-                  i++;
-                }
-                if (!parsed[name]) parsed[name] = { shift: shift, scan_in: scan_in, late_hrs: late_hrs, leave_hrs: leave_hrs, note: note, type: 'wd' };
-                continue;
+          var workbook = XLSX.read(data, {type: 'array'});
+          var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          var jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+
+          var importedCount = 0;
+          // ตรวจสอบรายชื่อในไฟล์ Excel เทียบกับฐานข้อมูลพนักงาน
+          jsonData.forEach(function(row) {
+            var rowText = JSON.stringify(row).toLowerCase();
+            emps.forEach(function(emp) {
+              // ถ้าเจอชื่อหรือชื่อเล่นพนักงานในแถวนั้นๆ ให้ถือว่า "มาทำงาน" (1)
+              if (rowText.includes(emp.name.toLowerCase()) || rowText.includes(emp.nickname.toLowerCase())) {
+                se(emp.id, hrcSelectedDate, '1', 'Import จากเครื่องสแกน/HR Cloud');
+                importedCount++;
               }
-              i++;
-            }
-          } else {
-            while (i < rows.length) {
-              var row = rows[i], col2 = String(row[2] || '').trim();
-              if (/^LDM\d/.test(col2)) {
-                var name = normName(col2); i++;
-                var shift = '', scan_in = '', location = '';
-                while (i < rows.length) {
-                  var r2 = rows[i], c1t = String(r2[1] || '').trim(), c0 = String(r2[0] || '').trim(), c2n = String(r2[2] || '').trim(), c3 = String(r2[3] || '').trim();
-                  if (c1t.indexOf('(รวม)') >= 0 || (c0 && String(r2[12] || '').indexOf('(รวม)') >= 0)) { i++; break; }
-                  if (/^LDM\d/.test(c2n)) break;
-                  var hasDate = String(c3).indexOf('2026') >= 0 || String(c3).indexOf('2025') >= 0;
-                  if (hasDate && !parsed[name]) {
-                    shift = String(r2[10] || '').trim(); var si = extractTime(String(r2[18] || ''));
-                    location = String(r2[20] || '').trim(); parsed[name] = { shift: shift, scan_in: si, location: location, type: 'ts' };
-                  }
-                  i++;
-                }
-                continue;
-              }
-              i++;
-            }
-          }
-          var totalParsed = Object.keys(parsed).length;
-          function getStatus(d) {
-            if (d.type === 'wd') {
-              var note = d.note || '', shift = d.shift || '', nl = note.toLowerCase();
-              var shiftNote = shift && shift !== 'กะงาน 4' ? shift : '';
-              if (shift === 'วันหยุด' && !d.scan_in) return { code: 'w', note: '' };
-              if ((shift.indexOf('วันหยุดพิเศษ') >= 0 || shift.indexOf('วันหยุดชดเชย') >= 0) && !d.scan_in) return { code: 'พ', note: shift };
-              if (note === 'ขาด') return { code: 'ข', note: shiftNote };
-              if (note === 'ลาพักร้อน') return { code: 'ร', note: shiftNote };
-              if (note === 'ลาป่วย') return { code: 'ป', note: '' };
-              if (note === 'ลากิจ') return { code: 'ก', note: '' };
-              if (note.indexOf('สาย') >= 0 || (d.late_hrs && parseFloat(d.late_hrs) > 0)) {
-                var lmins = d.late_hrs ? Math.round(parseFloat(d.late_hrs) * 60) : 0;
-                var lparts = [];
-                if (shiftNote) lparts.push(shiftNote);
-                if (d.scan_in) lparts.push('เข้า ' + d.scan_in);
-                if (lmins > 0) lparts.push('สาย ' + lmins + ' นาที');
-                return { code: 'ส', note: lparts.join(' ') };
-              }
-              if (d.scan_in) return { code: '1', note: shiftNote };
-              if (shift && shift !== 'วันหยุด') return { code: 's', note: shiftNote };
-              return { code: '', note: '' };
-            } else {
-              if (!d.shift && !d.scan_in) return { code: '', note: '' };
-              if (!d.scan_in && d.shift) return { code: 's', note: d.shift !== 'กะงาน 4' ? d.shift : '' };
-              if (d.location && d.location.indexOf('ภายนอก') >= 0) return { code: 'f', note: 'ทำงานนอกสถานที่' };
-              var ss = { 'กะงาน 1': '7:00', 'กะงาน 2': '7:00', 'กะงาน 3': '7:30', 'กะงาน 4': '8:30', 'กะงาน 5': '9:00', 'กะงาน 6': '9:30', 'กะงาน 7': '12:00', 'กะงาน 8': '10:00', 'กะงาน 9': '8:00', 'กะทำงาน 12': '6:00', 'กะเช้าแอดมิน': '6:00' };
-              var exp = ss[d.shift], note = d.shift && d.shift !== 'กะงาน 4' ? d.shift : '';
-              if (d.scan_in && exp) { try { var ep = exp.split(':').map(Number), sp = d.scan_in.split(':').map(Number); if ((sp[0] * 60 + sp[1]) > (ep[0] * 60 + ep[1] + 1)) return { code: 'ส', note: (note + ' เข้า ' + d.scan_in).trim() }; } catch (ex) { } }
-              return { code: '1', note: note };
-            }
-          }
-          var nameAlias = { 'นายนายธีรวัฒน์ จันโทกูล': 'นายธีรวัฒน์ จันโทกูล' };
-          var empIdx = {}, empStrip = {}
-          emps.forEach(function (e) {
-            var n = e.name.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim();
-            empIdx[n] = e.id; empStrip[n.replace(/^(นาย|นางสาว|นาง)\s*/, '')] = e.id;
+            });
           });
-          var date = localStorage.getItem('hr4_hrcdate') || fileDate || dk(cur);
-          localStorage.removeItem('hr4_hrcdate');
-          var dp = date.split('-');
-          cur = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]));
-          var matched = 0, unmatched = [];
-          Object.keys(parsed).forEach(function (name) {
-            var d = parsed[name];
-            var lookupName = nameAlias[name] || name;
-            var empId = empIdx[lookupName];
-            if (!empId) empId = empStrip[lookupName.replace(/^(นาย|นางสาว|นาง)\s*/, '')];
-            if (!empId) {
-              var parts = lookupName.replace(/^(นาย|นางสาว|นาง)\s*/, '').split(' ').filter(Boolean);
-              Object.keys(empIdx).forEach(function (en) {
-                if (empId) return;
-                var ep = en.replace(/^(นาย|นางสาว|นาง)\s*/, '').split(' ').filter(Boolean);
-                if (parts.length >= 2 && ep.length >= 2 && parts[0] === ep[0] && parts[parts.length - 1] === ep[ep.length - 1]) empId = empIdx[en];
-              });
-            }
-            if (empId) {
-              var st = getStatus(d);
-              if (st.code) { se(empId, date, st.code, st.note); }
-              matched++;
-            }
-            else unmatched.push(name);
-          });
-          input.value = ''; render();
-          var msg = 'นำเข้าสำเร็จ! (' + (isWD ? 'Working Details' : 'TimeStampReport') + ')';
-          msg += '\n\n📅 วันที่ในไฟล์: ' + (fileDate ? fileDate + ' ✅' : 'ไม่พบ ❌ ใช้วันที่แอป: ' + dk(cur));
-          msg += '\n📝 บันทึกลงวันที่: ' + date;
-          msg += '\n\n👥 พบ: ' + totalParsed + ' คน';
-          msg += '\n✅ จับคู่ได้: ' + matched + ' คน';
-          if (unmatched.length) msg += '\nจับคู่ไม่ได้: ' + unmatched.length + ' คน (' + unmatched.slice(0, 3).join(', ') + (unmatched.length > 3 ? '...' : '') + ')\n(ชื่อสะกดต่างกันระหว่างแอปกับ HR Cloud)';
-          msg += '\n\nคนที่ไม่อยู่ในไฟล์ยังว่าง กรอกเพิ่มเองได้เลยครับ';
-          alert(msg);
-        } catch (err) { input.value = ''; alert('เกิดข้อผิดพลาด:\n' + err.message + '\n\nรายละเอียด: ' + err.stack); }
+
+          alert('✅ นำเข้าข้อมูลสำเร็จ!\nพบรายชื่อมาทำงาน: ' + importedCount + ' รายการ\nลงในวันที่: ' + hrcSelectedDate);
+          if (hrcSelectedDate === dk(cur)) render(); // อัปเดตตารางถ้าเป็นวันเดียวกัน
+          
+        } catch(err) {
+          alert('❌ เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: ' + err.message);
+        }
+        input.value = ''; // รีเซ็ต input ไฟล์
       };
       reader.readAsArrayBuffer(file);
     }
 
-    function pickDateThenImport() {
-      document.getElementById('hrc-date-pick').value = dk(cur);
-      document.getElementById('hrc-date-modal').style.display = 'flex';
-    }
-    function confirmHrcDate() {
-      var picked = document.getElementById('hrc-date-pick').value;
-      if (!picked) { alert('กรุณาเลือกวันที่ครับ'); return; }
-      localStorage.setItem('hr4_hrcdate', picked);
-      document.getElementById('hrc-date-modal').style.display = 'none';
-      document.getElementById('hrc-file').click();
-    }
-    function exportLate() {
-      var dates = getDateRange('month');
-      var wb = XLSX.utils.book_new();
-      var dn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      var lateCode = 'ส';
-
-      var r1 = [];
-      dates.forEach(function (date) {
-        var dd = new Date(date);
-        emps.forEach(function (e) {
-          var ent = ge(e.id, date);
-          if (ent.code !== lateCode) return;
-          var note = ent.note || '';
-          var mins = 0, timeIn = '';
-          var mm = note.match(/สาย ([0-9]+) นาที/);
-          if (mm) mins = parseInt(mm[1]);
-          var mt = note.match(/เข้า ([0-9]{1,2}:[0-9]{2})/);
-          if (mt) timeIn = mt[1];
-          r1.push({ Name: e.name, Nick: e.nickname, Pos: e.position, Date: date, Day: dn[dd.getDay()], TimeIn: timeIn, Mins: mins, Note: note });
-        });
-      });
-
-      if (!r1.length) { alert('ไม่พบข้อมูลการมาสายในเดือนนี้'); return; }
-
-      var ws1 = XLSX.utils.json_to_sheet(r1, { header: ['Name', 'Nick', 'Pos', 'Date', 'Day', 'TimeIn', 'Mins', 'Note'] });
-      ws1['!cols'] = [{ wch: 28 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 5 }, { wch: 8 }, { wch: 8 }, { wch: 35 }];
-      XLSX.utils.book_append_sheet(wb, 'Detail', ws1);
-
-      var r2 = [];
-      emps.forEach(function (e) {
-        var dd2 = [], tot = 0;
-        dates.forEach(function (date) {
-          var ent = ge(e.id, date);
-          if (ent.code !== lateCode) return;
-          var mins = 0;
-          var mm = (ent.note || '').match(/สาย ([0-9]+) นาที/);
-          if (mm) mins = parseInt(mm[1]);
-          tot += mins;
-          var dobj = new Date(date);
-          dd2.push(dobj.getDate() + '/' + (dobj.getMonth() + 1) + (mins ? ' (' + mins + 'm)' : ''));
-        });
-        if (dd2.length) r2.push({ Name: e.name, Nick: e.nickname, Pos: e.position, Times: dd2.length, TotalMins: tot, Dates: dd2.join(', ') });
-      });
-      r2.sort(function (a, b) { return b.TotalMins - a.TotalMins; });
-
-      if (r2.length) {
-        var ws2 = XLSX.utils.json_to_sheet(r2, { header: ['Name', 'Nick', 'Pos', 'Times', 'TotalMins', 'Dates'] });
-        ws2['!cols'] = [{ wch: 28 }, { wch: 9 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 60 }];
-        XLSX.utils.book_append_sheet(wb, 'Summary', ws2);
-      }
-
-      var d = new Date();
-      var mo = d.getFullYear() + '' + ('0' + (d.getMonth() + 1)).slice(-2);
-      var rows2 = [['Name', 'Nick', 'Position', 'Date', 'Day', 'TimeIn', 'LateMinutes', 'Note']];
-      r1.forEach(function (r) { rows2.push([r.Name, r.Nick, r.Pos, r.Date, r.Day, r.TimeIn, r.Mins, r.Note]); });
-      rows2.push([]);
-      rows2.push(['Name', 'Nick', 'Position', 'Times', 'TotalMinutes', 'Dates']);
-      r2.forEach(function (r) { rows2.push([r.Name, r.Nick, r.Pos, r.Times, r.TotalMins, r.Dates]); });
-      var csv = rows2.map(function (row) { return row.map(csvEsc).join(','); }).join('\n');
-      csvDownload(csv, 'LateReport_' + mo + '.csv');
-    }
-    function clearDay() {
+    // ===================== WORD REPORT GENERATOR =====================
+    function generateReport() {
       var date = dk(cur);
-      var label = thaiDate(cur);
-      if (!confirm('ล้างข้อมูลทั้งหมดของวัน\n' + label + '\n\nแน่ใจไหมครับ?')) return;
-      if (att[date]) {
-        delete att[date];
-        ssave('attendance', att);
-        sbDeleteAttendanceByDate(date); // ลบจาก Supabase ด้วย
-        render();
-        alert('ล้างข้อมูลวัน ' + label + ' เรียบร้อยแล้วครับ');
+      var dateTh = thaiDate(cur);
+      
+      // สร้าง HTML Structure สำหรับแปลงเป็น Word
+      var html = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>";
+      html += "<head><meta charset='utf-8'><title>รายงานประจำวัน</title>";
+      html += "<style>body{font-family: 'TH Sarabun PSK', 'Cordia New', sans-serif; font-size:16pt;} table{width:100%; border-collapse:collapse; margin-top:20px;} th,td{border:1px solid black; padding:8px; text-align:left;}</style>";
+      html += "</head><body>";
+      html += "<h2 style='text-align:center;'>รายงานสรุปการเข้าปฏิบัติงาน</h2>";
+      html += "<p style='text-align:center;'><strong>ประจำวันที่:</strong> " + dateTh + "</p>";
+      html += "<table><thead><tr style='background-color:#e2e8f0;'><th>ลำดับ</th><th>ชื่อ-นามสกุล</th><th>ชื่อเล่น</th><th>ตำแหน่ง</th><th>สถานะ</th><th>หมายเหตุ</th></tr></thead><tbody>";
+
+      var i = 1;
+      var LABELS = { '1': 'มาทำงาน', 'ส': 'มาสาย', 'f': 'WFH', 's': 'ลืมสแกน', 'ป': 'ลาป่วย', 'ร': 'พักร้อน', 'ก': 'ลากิจ', 'ข': 'ขาดงาน', 'w': 'หยุดสัปดาห์', 'h': 'วันหยุด', 'พ': 'หยุดพิเศษ', 'b': 'วันเกิด' };
+
+      // ดึงข้อมูลเฉพาะวันนั้น
+      emps.forEach(function(e) {
+        var ent = ge(e.id, date);
+        if (ent.code) { // แสดงเฉพาะคนที่มีการลงสถานะไว้แล้ว
+            var stat = LABELS[ent.code] || ent.code;
+            html += "<tr>";
+            html += "<td style='text-align:center;'>" + i++ + "</td>";
+            html += "<td>" + e.name + "</td>";
+            html += "<td>" + e.nickname + "</td>";
+            html += "<td>" + e.position + "</td>";
+            html += "<td><strong>" + stat + "</strong></td>";
+            html += "<td>" + (ent.note || '-') + "</td>";
+            html += "</tr>";
+        }
+      });
+
+      html += "</tbody></table></body></html>";
+
+      // สร้างไฟล์ .doc และสั่งดาวน์โหลด
+      var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+      var filename = 'HR_DailyReport_' + date + '.doc';
+      
+      var downloadLink = document.createElement("a");
+      document.body.appendChild(downloadLink);
+      if (navigator.msSaveOrOpenBlob) {
+        navigator.msSaveOrOpenBlob(blob, filename);
       } else {
-        alert('วันนี้ยังไม่มีข้อมูลครับ');
+        downloadLink.href = url;
+        downloadLink.download = filename;
+        downloadLink.click();
       }
-    }
-
-    // ===================== GOOGLE SHEETS SYNC =====================
-    function toggleSyncBar() {
-      var bar = document.getElementById('sync-bar');
-      bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
-      if (bar.style.display === 'flex') {
-        var url = localStorage.getItem('hr4_gsurl') || '';
-        document.getElementById('gs-url').value = url;
-      }
-    }
-    function saveGsUrl() {
-      var url = document.getElementById('gs-url').value.trim();
-      if (!url) { alert('กรุณาวาง URL ครับ'); return; }
-      localStorage.setItem('hr4_gsurl', url);
-      setSyncStatus('บันทึก URL แล้ว ✅');
-    }
-    function setSyncStatus(msg) {
-      document.getElementById('sync-status').textContent = msg;
-      setTimeout(function () { document.getElementById('sync-status').textContent = ''; }, 3000);
-    }
-    function getGsUrl() { return localStorage.getItem('hr4_gsurl') || ''; }
-
-    function syncToSheets() {
-      var url = getGsUrl();
-      if (!url) { alert('กรุณาใส่ URL ก่อนครับ กด Sync Sheets แล้วใส่ URL'); return; }
-      var btn = document.getElementById('sync-up-btn');
-      btn.textContent = 'กำลังบันทึก...'; btn.disabled = true;
-      fetch(url, { method: 'POST', body: JSON.stringify({ action: 'saveAtt', data: att }) })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          return fetch(url, { method: 'POST', body: JSON.stringify({ action: 'saveMvs', data: mvs }) });
-        })
-        .then(function (r) { return r.json(); })
-        .then(function () {
-          btn.textContent = '↑ บันทึกขึ้น'; btn.disabled = false;
-          setSyncStatus('บันทึกขึ้น Google Sheets แล้ว ✅ ' + new Date().toLocaleTimeString());
-        })
-        .catch(function (err) {
-          btn.textContent = '↑ บันทึกขึ้น'; btn.disabled = false;
-          setSyncStatus('Error: ' + err.message + ' ❌');
-        });
-    }
-
-    function syncFromSheets() {
-      var url = getGsUrl();
-      if (!url) { alert('กรุณาใส่ URL ก่อนครับ'); return; }
-      var btn = document.getElementById('sync-down-btn');
-      btn.textContent = 'กำลังดึง...'; btn.disabled = true;
-      fetch(url + '?action=getAtt')
-        .then(function (r) { return r.json(); })
-        .then(function (attData) {
-          att = attData; ssave('attendance', att);
-          return fetch(url + '?action=getMvs');
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (mvsData) {
-          mvs = mvsData; ssave('movements', mvs);
-          btn.textContent = '↓ ดึงข้อมูล'; btn.disabled = false;
-          setSyncStatus('ดึงข้อมูลจาก Google Sheets แล้ว ✅ ' + new Date().toLocaleTimeString());
-          render();
-          if (document.getElementById('view-emp').style.display !== 'none') renderMv();
-        })
-        .catch(function (err) {
-          btn.textContent = '↓ ดึงข้อมูล'; btn.disabled = false;
-          setSyncStatus('Error: ' + err.message + ' ❌');
-        });
-    }
-
-    function xlsxDownload(wb, filename) {
-      var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
-      function s2ab(s) {
-        var buf = new ArrayBuffer(s.length);
-        var view = new Uint8Array(buf);
-        for (var i = 0; i < s.length; i++)view[i] = s.charCodeAt(i) & 0xFF;
-        return buf;
-      }
-      var blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click();
-      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
+      document.body.removeChild(downloadLink);
     }
 
     // ===================== INIT =====================
@@ -3065,7 +1459,10 @@
       if (!e.target.closest('[style*="position:relative"]') && !e.target.closest('.qdi'))
         document.getElementById('qdrop').style.display = 'none';
     });
-    document.getElementById('ae-start').value = dk(new Date());
+    // Add safe checks for elements that might not exist until accessed
+    if (document.getElementById('ae-start')) {
+        document.getElementById('ae-start').value = dk(new Date());
+    }
 
     // ===== LOGIN SYSTEM =====
     // ===== SUPABASE AUTH SYSTEM =====
@@ -3093,9 +1490,17 @@
     // ===== currentUserRole เก็บ role จาก profiles =====
     var currentUserRole = 'viewer';
 
+    // FIX: Add Try-Catch so it doesn't break if table profiles does not exist
     async function loadProfile(userId) {
-      var { data } = await _sb.from('profiles').select('full_name, avatar_url, role').eq('id', userId).single();
-      return data;
+      if (!SUPABASE_READY) return null;
+      try {
+        var { data, error } = await _sb.from('profiles').select('full_name, avatar_url, role').eq('id', userId).single();
+        if (error) console.warn('Supabase Profile Fetch Warn:', error.message);
+        return data;
+      } catch (err) {
+        console.warn('Profiles table missing or error:', err);
+        return null;
+      }
     }
 
     async function showApp(user) {
@@ -3236,6 +1641,92 @@
       }
     });
 
+    // ฟังก์ชัน force reload จาก Cloud (ปุ่ม "ดึงจาก Cloud")
+    async function forceReloadFromCloud() {
+      if (!SUPABASE_READY) { alert('Supabase ยังไม่พร้อม'); return; }
+      if (!confirm('ดึงข้อมูลล่าสุดจาก Cloud?\n(ข้อมูลในเครื่องจะถูก merge กับข้อมูลจาก Cloud)')) return;
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(244,246,248,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:12px';
+      overlay.innerHTML = '<div style="font-size:32px">⬇️</div><div style="font-size:15px;font-weight:700;color:#0f172a">กำลังดึงข้อมูลจาก Cloud...</div>';
+      document.body.appendChild(overlay);
+      try {
+        await mergeFromCloud();
+        alert('✅ ดึงข้อมูลจาก Cloud สำเร็จ!\nพนักงาน: ' + emps.length + ' คน\nAttendance: ' + Object.keys(att).length + ' วัน\nMovements: ' + mvs.length + ' รายการ');
+      } catch(err) {
+        alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+      }
+      overlay.remove();
+      render(); fillFilters();
+    }
+
+    // ฟังก์ชัน merge ข้อมูล Cloud กับ Local
+    async function mergeFromCloud() {
+      console.log('[Sync] === เริ่ม merge จาก Cloud ===');
+      // 1. Employees: Cloud เป็นหลัก
+      var cloudEmps = await sbFetchEmployees();
+      console.log('[Sync] Cloud employees:', cloudEmps ? cloudEmps.length : 'null');
+      console.log('[Sync] Local employees:', emps.length);
+      if (cloudEmps && cloudEmps.length > 0) {
+        // ใช้ cloud เป็นหลัก แต่เพิ่ม local ที่ cloud ไม่มี
+        var cloudIds = new Set(cloudEmps.map(function(e) { return e.id; }));
+        var localOnly = emps.filter(function(e) { return !cloudIds.has(e.id); });
+        if (localOnly.length > 0) {
+          console.log('[Sync] Local-only employees:', localOnly.length, localOnly.map(function(e){return e.nickname;}).join(', '));
+          emps = cloudEmps.concat(localOnly);
+        } else {
+          emps = cloudEmps;
+        }
+      }
+      ssave('employees', emps);
+
+      // 2. Attendance: MERGE — Cloud + Local (Cloud wins on conflict)
+      var cloudAtt = await sbFetchAllAttendance();
+      var cloudAttDates = cloudAtt ? Object.keys(cloudAtt).length : 0;
+      var localAttDates = Object.keys(att).length;
+      console.log('[Sync] Cloud attendance dates:', cloudAttDates);
+      console.log('[Sync] Local attendance dates:', localAttDates);
+      if (cloudAtt) {
+        // Start with local, overlay cloud data on top (cloud wins)
+        var merged = {};
+        // Copy local first
+        var localDates = Object.keys(att);
+        for (var i = 0; i < localDates.length; i++) {
+          var d = localDates[i];
+          if (!merged[d]) merged[d] = {};
+          var localEids = Object.keys(att[d]);
+          for (var j = 0; j < localEids.length; j++) {
+            merged[d][localEids[j]] = att[d][localEids[j]];
+          }
+        }
+        // Overlay cloud (cloud wins on conflict)
+        var cDates = Object.keys(cloudAtt);
+        for (var i = 0; i < cDates.length; i++) {
+          var d = cDates[i];
+          if (!merged[d]) merged[d] = {};
+          var cEids = Object.keys(cloudAtt[d]);
+          for (var j = 0; j < cEids.length; j++) {
+            merged[d][cEids[j]] = cloudAtt[d][cEids[j]];
+          }
+        }
+        att = merged;
+        console.log('[Sync] Merged attendance dates:', Object.keys(att).length);
+      }
+      ssave('attendance', att);
+
+      // 3. Movements: MERGE by ID
+      var cloudMvs = await sbFetchMovements();
+      console.log('[Sync] Cloud movements:', cloudMvs ? cloudMvs.length : 'null');
+      console.log('[Sync] Local movements:', mvs.length);
+      if (cloudMvs && cloudMvs.length > 0) {
+        var mvMap = {};
+        mvs.forEach(function(m) { mvMap[m.id] = m; });
+        cloudMvs.forEach(function(m) { mvMap[m.id] = m; }); // cloud wins
+        mvs = Object.values(mvMap).sort(function(a,b) { return b.date.localeCompare(a.date); });
+      }
+      ssave('movements', mvs);
+      console.log('[Sync] === merge เสร็จสิ้น ===');
+    }
+
     async function initApp() {
       // แสดง loading ถ้า Supabase พร้อมใช้งาน
       var overlay = null;
@@ -3246,17 +1737,10 @@
         overlay.innerHTML = '<div style="font-size:32px">☁️</div><div style="font-size:15px;font-weight:700;color:#0f172a">กำลังโหลดข้อมูลจาก Cloud...</div><div style="font-size:12px;color:#64748b">Supabase</div>';
         document.body.appendChild(overlay);
         try {
-          // โหลด Employees
-          var cloudEmps = await sbFetchEmployees();
-          if (cloudEmps && cloudEmps.length > 0) { emps = cloudEmps; ssave('employees', emps); }
-          // โหลด Attendance
-          var cloudAtt = await sbFetchAllAttendance();
-          if (cloudAtt && Object.keys(cloudAtt).length > 0) { att = cloudAtt; ssave('attendance', att); }
-          // โหลด Movements
-          var cloudMvs = await sbFetchMovements();
-          if (cloudMvs && cloudMvs.length > 0) { mvs = cloudMvs; ssave('movements', mvs); }
+          await mergeFromCloud();
         } catch (err) {
-          console.warn('Supabase load failed, using local cache:', err);
+          console.error('[initApp] Supabase merge failed:', err);
+          alert('⚠️ ไม่สามารถโหลดข้อมูลจาก Cloud ได้\nใช้ข้อมูลในเครื่องแทน\n\nError: ' + err.message);
         }
         if (overlay) overlay.remove();
       }
