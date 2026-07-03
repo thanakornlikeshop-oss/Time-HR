@@ -794,6 +794,22 @@
       { c: 'b', l: 'วันเกิด', cl: 'vb' }, { c: 'ข', l: 'ขาดงาน', cl: 'vx' }, { c: 's', l: 'ลืมสแกน', cl: 'vw' }
     ];
     var CL = {}; CODES.forEach(function (x) { CL[x.c] = x.cl; });
+    var STATUS_LABELS = {}; CODES.forEach(function (x) { STATUS_LABELS[x.c] = x.l; });
+    var STATUS_SHORT_LABELS = {
+      '1': 'มา', 'ส': 'สาย', 'f': 'WFH', 's': 'ลืมสแกน', 'ป': 'ป่วย', 'ร': 'พักร้อน',
+      'ก': 'ลากิจ', 'ข': 'ขาด', 'w': 'หยุดสัปดาห์', 'h': 'วันหยุด', 'พ': 'หยุดพิเศษ', 'b': 'วันเกิด'
+    };
+    var STATUS_COLORS = {
+      '1': '#10b981', 'ส': '#f59e0b', 'f': '#0ea5e9', 's': '#94a3b8', 'ป': '#ef4444', 'ร': '#8b5cf6',
+      'ก': '#6366f1', 'ข': '#dc2626', 'w': '#cbd5e1', 'h': '#a3e635', 'พ': '#fb923c', 'b': '#ec4899'
+    };
+    function normalizeCode(code) {
+      code = (code || '').trim();
+      return code === 'H' ? 'h' : code;
+    }
+    function isCodeIn(code, list) {
+      return list.indexOf(normalizeCode(code)) >= 0;
+    }
     var SHIFT_TIMES = {
       'กะงาน 1': '07:00-16:00', 'กะงาน 2': '07:00-16:00', 'กะงาน 3': '07:30-16:30',
       'กะงาน 4': '08:30-17:30', 'กะงาน 5': '09:00-18:00', 'กะงาน 6': '09:30-18:30',
@@ -821,6 +837,7 @@
     function ssave(k, v) { try { localStorage.setItem('hr4_' + k, JSON.stringify(v)); } catch (e) { } }
     function ge(eid, date) { return (att[date] || {})[eid] || { code: '', note: '' }; }
     function se(eid, date, code, note) {
+      code = normalizeCode(code);
       if (!att[date]) att[date] = {};
       att[date][eid] = { code: code, note: note };
       ssave('attendance', att);
@@ -839,8 +856,8 @@
       var work = 0, late = 0, sick = 0, vacation = 0, personal = 0, absent = 0, noscan = 0, lateMins = 0;
       dates.forEach(function (date) {
         var ent = ge(empId, date);
-        var c = ent.code;
-        if (!c || 'w h H b พ พร'.indexOf(c) >= 0) return;
+        var c = normalizeCode(ent.code);
+        if (!c || isCodeIn(c, ['w', 'h', 'b', 'พ', 'พร'])) return;
         if (c === '1') work++;
         else if (c === 'ส') {
           work++; late++;
@@ -888,12 +905,12 @@
       var date = dk(cur);
       var work = 0, sick = 0, leave = 0, absent = 0, wk = 0, em = 0, late = 0, noscan = 0;
       emps.forEach(function (e) {
-        var c = ge(e.id, date).code;
+        var c = normalizeCode(ge(e.id, date).code);
         if (c === 'ส') { work++; late++; }
         else if (c === 's') { work++; noscan++; }
         else if (c === '1' || c === 'f' || c === 'b') work++;
         else if (c === 'ป') sick++;
-        else if ('ร ก พ พร h H อ'.indexOf(c) >= 0) leave++;
+        else if (isCodeIn(c, ['ร', 'ก', 'พ', 'พร', 'h', 'อ'])) leave++;
         else if (c === 'ข') absent++;
         else if (c === 'w') wk++;
         else em++;
@@ -928,7 +945,7 @@
       visEmps = emps.filter(function (e) {
         if (q && e.name.toLowerCase().indexOf(q) < 0 && e.nickname.toLowerCase().indexOf(q) < 0) return false;
         if (pf && e.position !== pf) return false;
-        var c = ge(e.id, date).code;
+        var c = normalizeCode(ge(e.id, date).code);
         if (sf === '__empty__') return !c;
         if (sf !== '') return c === sf;
         return true;
@@ -936,9 +953,9 @@
       var tb = document.getElementById('tbody');
       if (!visEmps.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">ไม่มีข้อมูลพนักงานที่ตรงกับเงื่อนไข</td></tr>'; return; }
       tb.innerHTML = visEmps.map(function (e, i) {
-        var ent = ge(e.id, date), cc = CL[ent.code] || '', note = ent.note || '';
-        var st = getShiftTime(note), isEmpty = !ent.code;
-        var isLate = ent.code === 'ส';
+        var ent = ge(e.id, date), code = normalizeCode(ent.code), cc = CL[code] || '', note = ent.note || '';
+        var st = getShiftTime(note), isEmpty = !code;
+        var isLate = code === 'ส';
         var lateMins = '';
         var mLate = note.match(/สาย (\d+) นาที/);
         if (mLate) lateMins = mLate[1];
@@ -947,7 +964,7 @@
           '<td style="color:#94a3b8;font-size:12px;text-align:center">' + (i + 1) + '</td>' +
           '<td><span class="nick">' + e.nickname + '</span> <span style="font-size:13px;color:#475569;margin-left:4px">' + e.name + '</span><span class="pos">' + e.position + '</span></td>' +
           '<td style="text-align:center;padding:8px">' +
-          '<input class="ci ' + cc + '" type="text" maxlength="3" value="' + ent.code + '"' +
+          '<input class="ci ' + cc + '" type="text" maxlength="3" value="' + code + '"' +
           ' data-row="' + i + '" data-eid="' + e.id + '" onchange="onCC(this)" onkeydown="onCK(event,this)"' +
           ' placeholder="—" autocomplete="off" spellcheck="false">' +
           '</td>' +
@@ -977,7 +994,8 @@
       se(eid, date, prev.code || 'ส', newNote);
     }
     function onCC(inp) {
-      var date = dk(cur), eid = inp.dataset.eid, val = inp.value.trim();
+      var date = dk(cur), eid = inp.dataset.eid, val = normalizeCode(inp.value);
+      inp.value = val;
       var prev = ge(eid, date); se(eid, date, val, prev.note || '');
       inp.className = 'ci ' + (CL[val] || ''); renderSumBar();
     }
@@ -1015,7 +1033,7 @@
       var today = dk(new Date(TODAY));
       var todayCount = 0, absentCount = 0;
       emps.forEach(function(e) {
-        var c = ge(e.id, today).code;
+        var c = normalizeCode(ge(e.id, today).code);
         if (c === '1' || c === 'ส' || c === 'f' || c === 's' || c === 'b') todayCount++;
         else if (c === 'ป' || c === 'ข' || c === 'ร' || c === 'ก') absentCount++;
       });
@@ -1190,7 +1208,7 @@
     }
     function selectEmp(eid) {
       qEmpId = eid; document.getElementById('qdrop').style.display = 'none'; document.getElementById('qs').value = '';
-      var ent = ge(qEmpId, dk(cur)); qCode = ent.code || '';
+      var ent = ge(qEmpId, dk(cur)); qCode = normalizeCode(ent.code);
       var emp = emps.find(function (e) { return e.id === eid; });
       document.getElementById('qf-name').textContent = emp.nickname + ' — ' + emp.name;
       document.getElementById('qf-sub').textContent = emp.position;
@@ -1245,7 +1263,7 @@
       var cards = document.getElementById('day-cards');
       cards.innerHTML = dates.map(function (d) {
         var dd = new Date(d), cnt = {};
-        emps.forEach(function (e) { var c = ge(e.id, d).code || ''; if (c) cnt[c] = (cnt[c] || 0) + 1; });
+        emps.forEach(function (e) { var c = normalizeCode(ge(e.id, d).code); if (c) cnt[c] = (cnt[c] || 0) + 1; });
         var w = (cnt['1'] || 0) + (cnt['ส'] || 0) + (cnt['f'] || 0) + (cnt['s'] || 0) + (cnt['b'] || 0);
         var hasData = Object.keys(cnt).length > 0, isToday = d === dk(cur);
         var extra = '';
@@ -1297,11 +1315,10 @@
       var mn = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
       var title = dn[dd.getDay()] + 'ที่ ' + dd.getDate() + ' ' + mn[dd.getMonth()] + ' ' + (dd.getFullYear() + 543);
       document.getElementById('day-modal-title').textContent = title;
-      var LABELS = { '1': 'มาทำงาน', 'ส': 'มาสาย', 'f': 'WFH', 's': 'ลืมสแกน', 'ป': 'ลาป่วย', 'ร': 'ลาพักร้อน', 'ก': 'ลากิจ', 'ข': 'ขาดงาน', 'w': 'หยุดสัปดาห์', 'h': 'วันหยุด', 'พ': 'หยุดพิเศษ', 'b': 'วันเกิด' };
       var groups = {};
       emps.forEach(function (e) {
-        var ent = ge(e.id, date); if (!ent.code) return;
-        var lbl = LABELS[ent.code] || ent.code;
+        var ent = ge(e.id, date), code = normalizeCode(ent.code); if (!code) return;
+        var lbl = STATUS_LABELS[code] || code;
         if (!groups[lbl]) groups[lbl] = [];
         groups[lbl].push('<span style="font-weight:500;color:#0f172a">' + e.name + ' (' + e.nickname + ')</span> <span style="color:#64748b">— ' + e.position + '</span>' + (ent.note ? ' <span style="color:#3b82f6">[' + ent.note + ']</span>' : ''));
       });
@@ -1319,12 +1336,12 @@
       var e = emps.find(function (x) { return x.id === empId; }); if (!e) return;
       var dates = getDateRange('month');
       var dn = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-      var LABELS = { '1': 'มา', 'ส': 'สาย', 'f': 'WFH', 's': 'ลืมสแกน', 'ป': 'ป่วย', 'ร': 'พักร้อน', 'ก': 'ลากิจ', 'ข': 'ขาด', 'w': 'หยุดสัปดาห์', 'h': 'วันหยุด', 'พ': 'หยุดพิเศษ', 'b': 'วันเกิด' };
       var rows = [];
       dates.forEach(function (d) {
         var dd = new Date(d), ent = ge(empId, d);
-        if (!ent.code) return;
-        rows.push(dn[dd.getDay()] + ' ' + dd.getDate() + '/' + (dd.getMonth() + 1) + ': ' + (LABELS[ent.code] || ent.code) + (ent.note ? ' (' + ent.note + ')' : ''));
+        var code = normalizeCode(ent.code);
+        if (!code) return;
+        rows.push(dn[dd.getDay()] + ' ' + dd.getDate() + '/' + (dd.getMonth() + 1) + ': ' + (STATUS_SHORT_LABELS[code] || code) + (ent.note ? ' (' + ent.note + ')' : ''));
       });
       var s = getStats(empId, dates);
       var msg = 'ประวัติการเข้างานเดือนนี้: ' + e.nickname + ' (' + e.name + ')\n\n';
@@ -1346,7 +1363,7 @@
       XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
       var r2 = dates.filter(function (d) { return att[d]; }).map(function (d) {
         var dd = new Date(d), cnt = {};
-        emps.forEach(function (e) { var c = ge(e.id, d).code || ''; cnt[c] = (cnt[c] || 0) + 1; });
+        emps.forEach(function (e) { var c = normalizeCode(ge(e.id, d).code); cnt[c] = (cnt[c] || 0) + 1; });
         var w = (cnt['1'] || 0) + (cnt['ส'] || 0) + (cnt['f'] || 0) + (cnt['s'] || 0) + (cnt['b'] || 0);
         return { Date: d, Day: dn[dd.getDay()], Present: w, Late: cnt['ส'] || 0, Sick: cnt['ป'] || 0, Personal: (cnt['ก'] || 0) + (cnt['อ'] || 0), Vacation: cnt['ร'] || 0, Special: (cnt['พ'] || 0) + (cnt['พร'] || 0), Absent: cnt['ข'] || 0, NoScan: cnt['s'] || 0, Weekend: cnt['w'] || 0 };
       });
@@ -1362,7 +1379,7 @@
       var total = 0;
       dates.forEach(function(date) {
         var ent = ge(eid, date);
-        if (ent.code === 'ส') {
+        if (normalizeCode(ent.code) === 'ส') {
           var m = (ent.note || '').match(/สาย (\d+) นาที/);
           if (m) total += parseInt(m[1]);
         }
@@ -1386,7 +1403,7 @@
       var today = dk(cur);
       var kpiWork=0,kpiSick=0,kpiAbsent=0,kpiLate=0,kpiEmpty=0,kpiWfh=0,kpiVac=0,kpiPersonal=0;
       emps.forEach(function(e){
-        var c = ge(e.id, today).code;
+        var c = normalizeCode(ge(e.id, today).code);
         if(c==='1'||c==='b') kpiWork++;
         else if(c==='ส'){kpiWork++;kpiLate++;}
         else if(c==='f'){kpiWork++;kpiWfh++;}
@@ -1425,7 +1442,7 @@
       dates7.forEach(function(d){
         var w=0,s=0,l=0,a=0;
         emps.forEach(function(e){
-          var c=ge(e.id,d).code;
+          var c=normalizeCode(ge(e.id,d).code);
           if(c==='1'||c==='f'||c==='s'||c==='b') w++;
           else if(c==='ส'){w++;l++;}
           else if(c==='ป') s++;
@@ -1458,11 +1475,9 @@
 
       // --- Chart: Status Donut ---
       var statusCount = {};
-      var STATUS_LABELS = {'1':'มาทำงาน','ส':'มาสาย','f':'WFH','s':'ลืมสแกน','ป':'ลาป่วย','ร':'พักร้อน','ก':'ลากิจ','ข':'ขาดงาน','w':'หยุดสัปดาห์','h':'วันหยุด','พ':'หยุดพิเศษ','b':'วันเกิด'};
-      var STATUS_COLORS = {'1':'#10b981','ส':'#f59e0b','f':'#0ea5e9','s':'#94a3b8','ป':'#ef4444','ร':'#8b5cf6','ก':'#6366f1','ข':'#dc2626','w':'#cbd5e1','h':'#a3e635','พ':'#fb923c','b':'#ec4899'};
       monthDates.forEach(function(d){
         emps.forEach(function(e){
-          var c=ge(e.id,d).code; if(!c) return;
+          var c=normalizeCode(ge(e.id,d).code); if(!c) return;
           statusCount[c]=(statusCount[c]||0)+1;
         });
       });
@@ -1529,7 +1544,7 @@
         if(!deptMap[e.position]) deptMap[e.position]={work:0,late:0,sick:0,absent:0,total:0,lateMin:0};
         deptMap[e.position].total++;
         monthDates.forEach(function(d){
-          var c=ge(e.id,d).code;
+          var c=normalizeCode(ge(e.id,d).code);
           if(c==='1'||c==='f'||c==='s'||c==='b') deptMap[e.position].work++;
           else if(c==='ส'){deptMap[e.position].work++;deptMap[e.position].late++; var m=(ge(e.id,d).note||'').match(/สาย (\d+) นาที/); if(m) deptMap[e.position].lateMin+=parseInt(m[1]);}
           else if(c==='ป') deptMap[e.position].sick++;
@@ -1778,8 +1793,6 @@
       html += "</head><body>";
       html += "<h2 style='text-align:center; margin-bottom:5px;'>รายงานสรุปการเข้าปฏิบัติงาน</h2>";
       html += "<p style='text-align:center; margin-top:0;'><strong>ประจำวันที่:</strong> " + dateTh + "</p>";
-      var LABELS = { '1': 'มาทำงาน', 'ส': 'มาสาย', 'f': 'WFH', 's': 'ลืมสแกน', 'ป': 'ลาป่วย', 'ร': 'พักร้อน', 'ก': 'ลากิจ', 'ข': 'ขาดงาน', 'w': 'หยุดสัปดาห์', 'h': 'วันหยุด', 'พ': 'หยุดพิเศษ', 'b': 'วันเกิด' };
-
       // คำนวณวันที่ย้อนหลัง 7 วัน
       var dObj = new Date(date);
       dObj.setDate(dObj.getDate() - 7);
@@ -1815,7 +1828,8 @@
       // ดึงข้อมูลพนักงานทั้งหมดเพื่อแสดงอย่างละเอียด
       emps.forEach(function(e) {
         var ent = ge(e.id, date);
-        var stat = ent.code ? (LABELS[ent.code] || ent.code) : 'ยังไม่ลงเวลา';
+        var code = normalizeCode(ent.code);
+        var stat = code ? (STATUS_LABELS[code] || code) : 'ยังไม่ลงเวลา';
         html += "<tr>";
         html += "<td style='text-align:center; width:40px;'>" + i++ + "</td>";
         html += "<td>" + e.name + "</td>";
