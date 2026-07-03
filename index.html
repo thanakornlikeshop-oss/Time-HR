@@ -713,7 +713,7 @@
       <div class="card">
         <table class="et" style="width:100%">
           <thead>
-            <tr><th style="width:50px;text-align:center">#</th><th>ชื่อ-นามสกุล</th><th>ชื่อเล่น</th><th>ตำแหน่ง</th><th>เริ่มงาน</th><th style="text-align:center">จัดการ</th></tr>
+            <tr><th style="width:50px;text-align:center">#</th><th>ชื่อ-นามสกุล</th><th>ชื่อเล่น</th><th>ตำแหน่ง</th><th>เริ่มงาน</th><th style="width:250px;text-align:center">จัดการ</th></tr>
           </thead>
           <tbody id="etbody"></tbody>
         </table>
@@ -1063,10 +1063,11 @@
             '<td><span style="font-weight:700;color:#0f172a">' + e.name + '</span>' + badge + '</td>' +
             '<td style="color:#2563eb;font-weight:600">' + (e.nickname || '—') + '</td>' +
             '<td><span style="background:#e0f2fe;color:#0369a1;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600">' + (e.position || '—') + '</span></td>' +
-            '<td style="color:#64748b;font-size:13px">' + start + '</td>' +
-            '<td style="text-align:center">' +
-              '<button class="btn" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="openEditEmp(\'' + e.id + '\')">✏️ แก้ไข</button>' +
-              '<button class="btn" style="padding:4px 10px;font-size:12px;background:#fef2f2;color:#b91c1c;border-color:#fecaca" onclick="confirmDeleteEmp(\'' + e.id + '\',\'' + e.name.replace(/'/g,"\\'")+'\')">🗑 ลบ</button>' +
+          '<td style="color:#64748b;font-size:13px">' + start + '</td>' +
+            '<td style="text-align:center;white-space:nowrap">' +
+              '<button class="btn" style="padding:4px 8px;font-size:12px;margin-right:4px" onclick="openEditEmp(\'' + e.id + '\')">✏️ แก้ไข</button>' +
+              '<button class="btn" style="padding:4px 8px;font-size:12px;margin-right:4px;background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="markEmpOut(\'' + e.id + '\')">🔴 พ้นสภาพ</button>' +
+              '<button class="btn" style="padding:4px 8px;font-size:12px;background:#fef2f2;color:#b91c1c;border-color:#fecaca" onclick="confirmDeleteEmp(\'' + e.id + '\',\'' + e.name.replace(/'/g,"\\'")+'\')">🗑 ลบ</button>' +
             '</td></tr>';
         }).join('');
       }
@@ -1143,6 +1144,33 @@
       sbDeleteEmployee(id);
       renderEmp();
       fillFilters();
+    }
+
+    function markEmpOut(id) {
+      var e = emps.find(function(x) { return x.id === id; });
+      if (!e) return;
+      var date = dk(new Date(TODAY));
+      var exists = mvs.some(function(m) {
+        return m.type === 'out' && m.date === date && m.name === e.name;
+      });
+      if (exists) {
+        alert('มีรายการพ้นสภาพของพนักงานคนนี้ในวันนี้แล้ว');
+        return;
+      }
+      if (!confirm('บันทึกพ้นสภาพให้: ' + e.name + '\nวันที่มีผล: ' + date + '\n\nระบบจะดึงชื่อเล่นและตำแหน่งจากข้อมูลพนักงานให้อัตโนมัติ')) return;
+      var mv = {
+        id: Date.now().toString(),
+        type: 'out',
+        name: e.name || '',
+        nickname: e.nickname || '',
+        position: e.position || '',
+        date: date,
+        note: 'บันทึกจากหน้าจัดการพนักงาน'
+      };
+      mvs.push(mv);
+      ssave('movements', mvs);
+      sbInsertMovement(mv);
+      renderEmp();
     }
 
     function showMv(type) {
