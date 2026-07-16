@@ -470,20 +470,20 @@
       <button class="btn" onclick="migrateLocalToSupabase()" style="background:#06b6d4;color:#fff;border-color:#06b6d4;box-shadow:0 2px 4px rgba(6,182,212,0.3)" title="Push ข้อมูลจากเครื่องนี้ขึ้น Cloud เพื่อให้เครื่องอื่นเห็น">⬆️ Push ขึ้น Cloud</button>
       <button class="btn" onclick="forceReloadFromCloud()" style="background:#8b5cf6;color:#fff;border-color:#8b5cf6;box-shadow:0 2px 4px rgba(139,92,246,0.3)" title="ดึงข้อมูลล่าสุดจาก Cloud">⬇️ ดึงจาก Cloud</button>
       <button class="btn btn-orange" onclick="pickDateThenImport()">&#x2191; ดึง HR Cloud</button>
-      <input type="file" id="hrc-file" accept=".csv" style="display:none" onchange="importHRCloud(this)">
+      <input type="file" id="hrc-file" accept=".csv, .xlsx, .xls" style="display:none" onchange="importHRCloud(this)">
       <div id="hrc-date-modal" class="modal-bg">
         <div class="modal" style="width:360px">
-          <h3>⬆️ นำเข้าจาก HR Cloud (CSV)</h3>
+          <h3>⬆️ นำเข้าจาก HR Cloud (Excel/CSV)</h3>
           <div style="font-size:13px;color:#64748b;margin-bottom:16px;line-height:1.7">
-            รองรับไฟล์ CSV จากระบบ HR Cloud<br>
+            รองรับไฟล์ Excel (.xlsx, .xls) หรือ CSV จากระบบ HR Cloud<br>
             <span style="color:#0f172a;font-weight:600">รูปแบบ:</span> รายงานรายละเอียดการทำงาน แบบแจกแจง ตามพนักงาน<br>
             <span style="color:#10b981;font-size:12px">✓ อ่านวันที่จากไฟล์อัตโนมัติ</span><br>
             <span style="color:#10b981;font-size:12px">✓ คำนวณสาย/มาตรงเวลาจากเวลาเข้างาน</span><br>
-            <span style="color:#10b981;font-size:12px">✓ รองรับ encoding TIS-620</span>
+            <span style="color:#10b981;font-size:12px">✓ ตรวจหาตำแหน่งคอลัมน์อัตโนมัติ (Dynamic)</span>
           </div>
           <div class="mac" style="margin-top:0">
             <button class="btn" onclick="document.getElementById('hrc-date-modal').classList.remove('open')">ยกเลิก</button>
-            <button class="btn btn-orange" onclick="confirmHrcDate()">📂 เลือกไฟล์ CSV</button>
+            <button class="btn btn-orange" onclick="confirmHrcDate()">📂 เลือกไฟล์ Excel/CSV</button>
           </div>
         </div>
       </div>
@@ -1608,197 +1608,260 @@
     function importHRCloud(input) {
       if (!input.files || input.files.length === 0) return;
       var file = input.files[0];
+      var fileName = file.name.toLowerCase();
+      var isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
       var reader = new FileReader();
+
+      // ---- กำหนด SHIFT_TIMES สำหรับคำนวณสาย ----
+      var SHIFT_START = {
+        'กะงาน 1':  '07:00', 'กะงาน 2':  '07:00', 'กะงาน 3':  '07:30',
+        'กะงาน 4':  '08:30', 'กะงาน 5':  '09:00', 'กะงาน 6':  '09:30',
+        'กะงาน 7':  '12:00', 'กะงาน 8':  '10:00', 'กะงาน 9':  '08:00',
+        'กะทำงาน 12': '06:00', 'กะเช้าแอดมิน': '06:00',
+        'Live-07':   '07:00', 'กะงานไดกิ': '08:00'
+      };
+
+      // ---- ฟังก์ชันช่วย ----
+      function parseHHMM(str) {
+        if (!str) return null;
+        var m = str.match(/(\d{1,2}):(\d{2})\s*$/);
+        if (!m) return null;
+        return parseInt(m[1]) * 60 + parseInt(m[2]);
+      }
+
+      function extractDateInfo(val) {
+        if (!val) return null;
+        if (val instanceof Date) {
+          var y = val.getFullYear();
+          var m = String(val.getMonth() + 1).padStart(2, '0');
+          var d = String(val.getDate()).padStart(2, '0');
+          return {
+            isoDate: y + '-' + m + '-' + d,
+            dateStr: d + '/' + m + '/' + y
+          };
+        }
+        if (typeof val === 'string') {
+          var s = val.trim();
+          var mYMD = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (mYMD) {
+            return {
+              isoDate: mYMD[1] + '-' + mYMD[2] + '-' + mYMD[3],
+              dateStr: mYMD[3] + '/' + mYMD[2] + '/' + mYMD[1]
+            };
+          }
+          var mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+          if (mDMY) {
+            var d = mDMY[1].padStart(2, '0');
+            var m = mDMY[2].padStart(2, '0');
+            var y = mDMY[3];
+            return {
+              isoDate: y + '-' + m + '-' + d,
+              dateStr: d + '/' + m + '/' + y
+            };
+          }
+        }
+        return null;
+      }
+
+      function formatTimeOrString(val) {
+        if (!val) return '';
+        if (val instanceof Date) {
+          var hrs = String(val.getHours()).padStart(2, '0');
+          var mins = String(val.getMinutes()).padStart(2, '0');
+          return hrs + ':' + mins;
+        }
+        return String(val).trim();
+      }
+
+      function processParsedGrid(rows) {
+        // Dynamic header scanning
+        var dateIdx = 2;
+        var shiftIdx = 4;
+        var checkinIdx = isExcel ? 6 : 5;
+        var checkoutIdx = isExcel ? 7 : 6;
+        var remarkIdx = isExcel ? 24 : 20;
+
+        for (var r = 0; r < Math.min(rows.length, 20); r++) {
+          var row = rows[r];
+          if (row && row.length > 0) {
+            for (var c = 0; c < row.length; c++) {
+              var cellVal = String(row[c] || '').trim();
+              if (cellVal === 'วันที่ทำงาน') dateIdx = c;
+              else if (cellVal === 'ชื่อกะ') shiftIdx = c;
+              else if (cellVal === 'วันเข้า') checkinIdx = c;
+              else if (cellVal === 'วันออก') checkoutIdx = c;
+              else if (cellVal === 'หมายเหตุ') remarkIdx = c;
+            }
+          }
+        }
+
+        var results = [];   // { empName, empId, date, code, note }
+        var unmatched = []; // ชื่อที่ไม่พบในระบบ
+
+        var i = 0;
+        while (i < rows.length) {
+          var cols = rows[i];
+          // ตรวจหา Identity row: col[1] มีค่า และมี \t
+          if (cols && cols.length > 1 && cols[1] && String(cols[1]).indexOf('\t') >= 0) {
+            var raw1 = String(cols[1]).trim();
+            var tabParts = raw1.split('\t');
+            var idName = tabParts[0].trim();
+            var deptPos = (tabParts[1] || '').trim();
+
+            var idm = idName.match(/^(\S+)\s+(.+)/);
+            var csvEmpId = idm ? idm[1].trim() : '';
+            var csvEmpName = idm ? idm[2].trim().replace(/\s+/g,' ') : idName.trim();
+
+            var j = i + 1;
+            while (j < rows.length) {
+              var dcols = rows[j];
+              if (!dcols) { j++; continue; }
+
+              // ตรวจหา block ถัดไป
+              if (dcols.length > 1 && dcols[1] && String(dcols[1]).indexOf('\t') >= 0) {
+                break;
+              }
+
+              // ตรวจสอบแถวสรุปยอดหรือตัวคั่น
+              var col0Str = String(dcols[0] || '').trim();
+              var col1Str = String(dcols[1] || '').trim();
+              if (col0Str !== '' || col1Str === 'รวม') {
+                j++;
+                continue;
+              }
+
+              var dateInfo = extractDateInfo(dcols[dateIdx]);
+              if (dcols.length > Math.max(dateIdx, shiftIdx) && dateInfo) {
+                var dateStr = dateInfo.dateStr;
+                var isoDate = dateInfo.isoDate;
+                var shift = String(dcols[shiftIdx] || '').trim();
+                var checkin = formatTimeOrString(dcols[checkinIdx]);
+                var checkout = formatTimeOrString(dcols[checkoutIdx]);
+                var remark = String(dcols[remarkIdx] || '').trim().replace(/^"/, '');
+
+                var code = '';
+                var note = shift;
+                var isHolidayShift = shift.indexOf('วันหยุด') >= 0;
+
+                if (remark === 'ลาพักร้อน') {
+                  code = 'ร';
+                  note = 'ลาพักร้อน | ' + shift;
+                } else if (remark === 'ลาป่วย' || remark === 'ลา') {
+                  code = 'ป';
+                  note = remark + ' | ' + shift;
+                } else if (remark === 'ขาด') {
+                  code = 'ข';
+                  note = 'ขาดงาน | ' + shift;
+                } else if (isHolidayShift) {
+                  code = 'h';
+                  note = shift;
+                } else if (checkin) {
+                  var shiftStartMins = parseHHMM(SHIFT_START[shift]);
+                  var actualMins = parseHHMM(checkin);
+                  var GRACE = 1;
+                  if (shiftStartMins !== null && actualMins !== null && actualMins > shiftStartMins + GRACE) {
+                    var lateMins = actualMins - shiftStartMins;
+                    code = 'ส';
+                    note = shift + ' | เข้า ' + checkin.split(/\s+/).pop() + ' | สาย ' + lateMins + ' นาที';
+                  } else {
+                    code = '1';
+                    note = shift + ' | เข้า ' + checkin.split(/\s+/).pop();
+                  }
+                } else if (remark === 'ผิดพลาด' || remark === '"ผิดพลาด') {
+                  code = 's';
+                  note = 'ลืมสแกน | ' + shift;
+                } else {
+                  j++;
+                  continue;
+                }
+
+                results.push({
+                  empName: csvEmpName,
+                  csvId: csvEmpId,
+                  date: isoDate,
+                  code: code,
+                  note: note
+                });
+              }
+              j++;
+            }
+            i = j;
+          } else {
+            i++;
+          }
+        }
+
+        // ---- Match กับ emps ในระบบ ----
+        var imported = 0, skipped = 0, updated = {};
+
+        results.forEach(function(r) {
+          var rName = r.empName.replace(/\s+/g, ' ').trim();
+          var found = emps.find(function(e) {
+            return e.name.replace(/\s+/g,' ').trim() === rName;
+          });
+          if (!found) {
+            var nameParts = rName.replace(/^(นาย|นาง|นางสาว)\s*/, '').trim();
+            found = emps.find(function(e) {
+              var en = e.name.replace(/\s+/g,' ').trim().replace(/^(นาย|นาง|นางสาว)\s*/,'');
+              return en === nameParts || e.name.indexOf(nameParts) >= 0;
+            });
+          }
+
+          if (found) {
+            se(found.id, r.date, r.code, r.note);
+            imported++;
+            var key = r.date;
+            updated[key] = (updated[key] || 0) + 1;
+          } else {
+            if (unmatched.indexOf(r.empName) < 0) unmatched.push(r.empName);
+            skipped++;
+          }
+        });
+
+        // ---- สรุปผล ----
+        var dates = Object.keys(updated).sort();
+        var msg = '✅ นำเข้าข้อมูลสำเร็จ!\n\n';
+        msg += '📥 บันทึกแล้ว: ' + imported + ' รายการ\n';
+        msg += '📅 วันที่: ' + dates.join(', ') + '\n';
+        if (skipped > 0) {
+          msg += '\n⚠️ ไม่พบในระบบ: ' + skipped + ' รายการ\n';
+          msg += unmatched.slice(0,10).join('\n');
+          if (unmatched.length > 10) msg += '\n... และอีก ' + (unmatched.length-10) + ' คน';
+        }
+        alert(msg);
+        render();
+        if (document.getElementById('view-emp').style.display !== 'none') renderEmp();
+      }
 
       reader.onload = function(e) {
         try {
-          // ---- ตรวจ encoding: tis-620 / cp874 / utf-8 ----
-          var raw = e.target.result;
-          var text = '';
-          var encodings = ['tis-620', 'windows-874', 'utf-8'];
-          for (var ei = 0; ei < encodings.length; ei++) {
-            try {
-              var dec = new TextDecoder(encodings[ei]);
-              text = dec.decode(raw);
-              if (text.indexOf('วัน') >= 0 || text.indexOf('กะ') >= 0) break;
-            } catch(ex) {}
-          }
-          if (!text) { alert('❌ ไม่สามารถอ่านไฟล์ได้ กรุณาตรวจสอบ encoding'); return; }
-
-          var lines = text.split(/\r?\n/);
-
-          // ---- กำหนด SHIFT_TIMES สำหรับคำนวณสาย ----
-          var SHIFT_START = {
-            'กะงาน 1':  '07:00', 'กะงาน 2':  '07:00', 'กะงาน 3':  '07:30',
-            'กะงาน 4':  '08:30', 'กะงาน 5':  '09:00', 'กะงาน 6':  '09:30',
-            'กะงาน 7':  '12:00', 'กะงาน 8':  '10:00', 'กะงาน 9':  '08:00',
-            'กะทำงาน 12': '06:00', 'กะเช้าแอดมิน': '06:00',
-            'Live-07':   '07:00', 'กะงานไดกิ': '08:00'
-          };
-
-          // ---- ฟังก์ชันช่วย ----
-          function parseHHMM(str) {
-            // รับ 'HH:MM' หรือ 'DD/MM/YYYY  HH:MM' คืน minutes from midnight
-            if (!str) return null;
-            var m = str.match(/(\d{1,2}):(\d{2})\s*$/);
-            if (!m) return null;
-            return parseInt(m[1]) * 60 + parseInt(m[2]);
-          }
-
-          function convertDate(ddmmyyyy) {
-            // 'DD/MM/YYYY' → 'YYYY-MM-DD'
-            var p = ddmmyyyy.trim().split('/');
-            if (p.length !== 3) return null;
-            return p[2] + '-' + p[1].padStart(2,'0') + '-' + p[0].padStart(2,'0');
-          }
-
-          // ---- Parse แต่ละ Employee Block ----
-          // Identity row: col[1] = 'EmpID   FullName\tDept   Position'
-          // Daily row(s): col[2]=date, col[4]=shift, col[5]=checkin, col[20]=status
-          // Block เริ่มเมื่อ col[1] มี \t (identity marker)
-
-          var results = [];   // { empName, empId, date, code, note }
-          var unmatched = []; // ชื่อที่ไม่พบในระบบ
-
-          var i = 0;
-          while (i < lines.length) {
-            var cols = lines[i].split(',');
-
-            // ตรวจหา Identity row: col[1] มีค่า และมี \t
-            if (cols.length > 1 && cols[1].indexOf('\t') >= 0) {
-              var raw1 = cols[1].trim();
-              var tabParts = raw1.split('\t');
-              var idName = tabParts[0].trim();   // 'DK-231    นางสาววิภารัตน์  ศรีคำนพ'
-              var deptPos = (tabParts[1] || '').trim(); // 'คลังสินค้า LikeShop    เจ้าหน้าที่คลังสินค้า'
-
-              // แยก empId และ empName
-              var idm = idName.match(/^(\S+)\s+(.+)/);
-              var csvEmpId = idm ? idm[1].trim() : '';
-              var csvEmpName = idm ? idm[2].trim().replace(/\s+/g,' ') : idName.trim();
-
-              // หา daily rows ถัดไป (row ที่ col[2] เป็นวันที่)
-              var j = i + 1;
-              while (j < lines.length) {
-                var dcols = lines[j].split(',');
-                // Daily row: col[0]='', col[1]='', col[2]=date 'DD/MM/YYYY'
-                if (dcols.length > 4 && dcols[0].trim() === '' && dcols[1].trim() === '' &&
-                    dcols[2].trim() && dcols[2].trim().match(/^\d{2}\/\d{2}\/\d{4}/)) {
-
-                  var dateStr = dcols[2].trim().split(/\s/)[0]; // 'DD/MM/YYYY'
-                  var isoDate = convertDate(dateStr);
-                  var shift   = (dcols[4] || '').trim();
-                  var checkin = (dcols[5] || '').trim();
-                  var checkout = (dcols[6] || '').trim();
-                  var remark  = (dcols[20] || '').trim().replace(/^"/, '');
-
-                  if (!isoDate) { j++; continue; }
-
-                  // ---- Map สถานะ ----
-                  var code = '';
-                  var note = shift;
-
-                  var isHolidayShift = shift.indexOf('วันหยุด') >= 0;
-
-                  if (remark === 'ลาพักร้อน') {
-                    code = 'ร';
-                    note = 'ลาพักร้อน | ' + shift;
-                  } else if (remark === 'ลาป่วย' || remark === 'ลา') {
-                    code = 'ป';
-                    note = remark + ' | ' + shift;
-                  } else if (remark === 'ขาด') {
-                    code = 'ข';
-                    note = 'ขาดงาน | ' + shift;
-                  } else if (isHolidayShift) {
-                    code = 'h';
-                    note = shift;
-                  } else if (checkin) {
-                    // มีเวลาเข้า = มา → ตรวจสาย
-                    var shiftStartMins = parseHHMM(SHIFT_START[shift]);
-                    var actualMins     = parseHHMM(checkin);
-                    var GRACE = 1; // grace period 1 นาที
-                    if (shiftStartMins !== null && actualMins !== null &&
-                        actualMins > shiftStartMins + GRACE) {
-                      var lateMins = actualMins - shiftStartMins;
-                      code = 'ส';
-                      note = shift + ' | เข้า ' + checkin.split(/\s+/).pop() + ' | สาย ' + lateMins + ' นาที';
-                    } else {
-                      code = '1';
-                      note = shift + ' | เข้า ' + checkin.split(/\s+/).pop();
-                    }
-                  } else if (remark === 'ผิดพลาด' || remark === '"ผิดพลาด') {
-                    // ผิดพลาด แต่ไม่มีเวลาเข้า = ลืมสแกน
-                    code = 's';
-                    note = 'ลืมสแกน | ' + shift;
-                  } else {
-                    // ไม่มีข้อมูล ข้ามไป
-                    j++;
-                    continue;
-                  }
-
-                  results.push({
-                    empName: csvEmpName,
-                    csvId: csvEmpId,
-                    date: isoDate,
-                    code: code,
-                    note: note
-                  });
-                  j++;
-                } else if (dcols[1].indexOf('\t') >= 0 || (dcols[0].trim() && dcols[0].trim() !== '' && dcols[1].trim() === '')) {
-                  // Identity row ถัดไป หรือ summary row = สิ้นสุด block นี้
-                  break;
-                } else {
-                  j++;
-                }
-              }
-              i = j; // เลื่อนไปยัง block ถัดไป
-            } else {
-              i++;
+          if (isExcel) {
+            var data = new Uint8Array(e.target.result);
+            var workbook = XLSX.read(data, {type: 'array', cellDates: true});
+            var firstSheetName = workbook.SheetNames[0];
+            var worksheet = workbook.Sheets[firstSheetName];
+            var rows = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ""});
+            processParsedGrid(rows);
+          } else {
+            // ---- ตรวจ encoding สำหรับ CSV ----
+            var raw = e.target.result;
+            var text = '';
+            var encodings = ['tis-620', 'windows-874', 'utf-8'];
+            for (var ei = 0; ei < encodings.length; ei++) {
+              try {
+                var dec = new TextDecoder(encodings[ei]);
+                text = dec.decode(raw);
+                if (text.indexOf('วัน') >= 0 || text.indexOf('กะ') >= 0) break;
+              } catch(ex) {}
             }
-          }
+            if (!text) { alert('❌ ไม่สามารถอ่านไฟล์ได้ กรุณาตรวจสอบ encoding'); return; }
 
-          // ---- Match กับ emps ในระบบ ----
-          var imported = 0, skipped = 0, updated = {};
-
-          results.forEach(function(r) {
-            // ค้นหาพนักงานด้วยชื่อ (normalize space)
-            var rName = r.empName.replace(/\s+/g, ' ').trim();
-            var found = emps.find(function(e) {
-              return e.name.replace(/\s+/g,' ').trim() === rName;
+            var lines = text.split(/\r?\n/);
+            var rows = lines.map(function(line) {
+              return line.split(',');
             });
-            // ถ้าไม่เจอ ลองค้นด้วย substring ของชื่อ (ตัด คำนำหน้า)
-            if (!found) {
-              var nameParts = rName.replace(/^(นาย|นาง|นางสาว)\s*/, '').trim();
-              found = emps.find(function(e) {
-                var en = e.name.replace(/\s+/g,' ').trim().replace(/^(นาย|นาง|นางสาว)\s*/,'');
-                return en === nameParts || e.name.indexOf(nameParts) >= 0;
-              });
-            }
-
-            if (found) {
-              se(found.id, r.date, r.code, r.note);
-              imported++;
-              var key = r.date;
-              updated[key] = (updated[key] || 0) + 1;
-            } else {
-              if (unmatched.indexOf(r.empName) < 0) unmatched.push(r.empName);
-              skipped++;
-            }
-          });
-
-          // ---- สรุปผล ----
-          var dates = Object.keys(updated).sort();
-          var msg = '✅ นำเข้าข้อมูลจาก HR Cloud สำเร็จ!\n\n';
-          msg += '📥 บันทึกแล้ว: ' + imported + ' รายการ\n';
-          msg += '📅 วันที่: ' + dates.join(', ') + '\n';
-          if (skipped > 0) {
-            msg += '\n⚠️ ไม่พบในระบบ: ' + skipped + ' รายการ\n';
-            msg += unmatched.slice(0,10).join('\n');
-            if (unmatched.length > 10) msg += '\n... และอีก ' + (unmatched.length-10) + ' คน';
+            processParsedGrid(rows);
           }
-          alert(msg);
-          render();
-          if (document.getElementById('view-emp').style.display !== 'none') renderEmp();
-
         } catch(err) {
           alert('❌ เกิดข้อผิดพลาด: ' + err.message + '\n\nStack: ' + err.stack);
         }
