@@ -1629,47 +1629,36 @@
         return parseInt(m[1]) * 60 + parseInt(m[2]);
       }
 
+      // extractDateInfo: รองรับ string format 'DD/MM/YYYY...' หรือ 'YYYY-MM-DD...'
+      // (ไม่มี Date object แล้วเพราะใช้ raw: false ใน SheetJS)
       function extractDateInfo(val) {
         if (!val) return null;
-        if (val instanceof Date) {
-          var y = val.getFullYear();
-          var m = String(val.getMonth() + 1).padStart(2, '0');
-          var d = String(val.getDate()).padStart(2, '0');
+        var s = String(val).trim();
+        // YYYY-MM-DD format
+        var mYMD = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (mYMD) {
+          return {
+            isoDate: mYMD[1] + '-' + mYMD[2] + '-' + mYMD[3],
+            dateStr: mYMD[3] + '/' + mYMD[2] + '/' + mYMD[1]
+          };
+        }
+        // DD/MM/YYYY format (formatted text จาก SheetJS raw:false)
+        var mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (mDMY) {
+          var d = mDMY[1].padStart(2, '0');
+          var m = mDMY[2].padStart(2, '0');
+          var y = mDMY[3];
           return {
             isoDate: y + '-' + m + '-' + d,
             dateStr: d + '/' + m + '/' + y
           };
         }
-        if (typeof val === 'string') {
-          var s = val.trim();
-          var mYMD = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (mYMD) {
-            return {
-              isoDate: mYMD[1] + '-' + mYMD[2] + '-' + mYMD[3],
-              dateStr: mYMD[3] + '/' + mYMD[2] + '/' + mYMD[1]
-            };
-          }
-          var mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-          if (mDMY) {
-            var d = mDMY[1].padStart(2, '0');
-            var m = mDMY[2].padStart(2, '0');
-            var y = mDMY[3];
-            return {
-              isoDate: y + '-' + m + '-' + d,
-              dateStr: d + '/' + m + '/' + y
-            };
-          }
-        }
         return null;
       }
 
+      // formatTimeOrString: คืนค่า string เสมอ (raw:false ทำให้ไม่มี Date objects)
       function formatTimeOrString(val) {
         if (!val) return '';
-        if (val instanceof Date) {
-          var hrs = String(val.getHours()).padStart(2, '0');
-          var mins = String(val.getMinutes()).padStart(2, '0');
-          return hrs + ':' + mins;
-        }
         return String(val).trim();
       }
 
@@ -1837,10 +1826,12 @@
         try {
           if (isExcel) {
             var data = new Uint8Array(e.target.result);
-            var workbook = XLSX.read(data, {type: 'array', cellDates: true});
+            // ไม่ใช้ cellDates: true เพื่อป้องกันปัญหา timezone ที่ทำให้วันที่เพี้ยน
+            // ใช้ raw: false เพื่อให้ SheetJS คืนค่าเป็น string ที่ formatted แล้ว (เช่น '16/07/2026')
+            var workbook = XLSX.read(data, {type: 'array'});
             var firstSheetName = workbook.SheetNames[0];
             var worksheet = workbook.Sheets[firstSheetName];
-            var rows = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ""});
+            var rows = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: "", raw: false});
             processParsedGrid(rows);
           } else {
             // ---- ตรวจ encoding สำหรับ CSV ----
